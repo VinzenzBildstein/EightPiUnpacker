@@ -1,0 +1,6 @@
+all levels include lower levels output
+0 - no messages unless a grave error occurs
+1 - a few messages about the progress on the unpacking and statistics
+2 - more checks
+3 - messages about midas event processing, calibration, and sorting - the "outer" functions
+4 - same as 3 but now also the "inner" functions
