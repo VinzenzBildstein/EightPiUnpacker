@@ -4,13 +4,12 @@
 #include <fstream>
 #include <vector>
 
-#include "boost/interprocess/file_mapping.hpp"
-#include "boost/interprocess/mapped_region.hpp"
+#include <boost/iostreams/device/mapped_file.hpp>
 
 #include "Settings.hh"
 
 using namespace std;
-using namespace boost::interprocess;
+using namespace boost::iostreams;
 
 #define BANK32 0x10
 #define END_OF_FILE 0x8001
@@ -87,7 +86,9 @@ class MidasFileManager {
     return fSize;
   }
   void Close() {
-    //file_mapping::remove(fFileName.c_str());
+    if(fFile.is_open()) {
+      fFile.close();
+    }
   }
 
 private:
@@ -105,13 +106,12 @@ private:
 
  private:
   Settings* fSettings;
-  file_mapping* fMapping;
-  mapped_region* fRegion;
+  mapped_file_source fFile;
   EFileStatus fStatus;
   string fFileName;
   size_t fSize;
-  uint8_t* fStartAddress;
-  uint8_t* fReadAddress;
+  const char* fStartAddress;
+  const char* fReadAddress;
 };
 
 class Bank {

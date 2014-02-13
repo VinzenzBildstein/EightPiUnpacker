@@ -5,21 +5,20 @@
 using namespace std;
 
 MidasFileManager::~MidasFileManager() {
-  if(!fFileName.empty()) {
-    file_mapping::remove(fFileName.c_str());
+  if(fFile.is_open()) {
+    fFile.close();
   }
 }
 
 bool MidasFileManager::Open(string fileName) {
   fFileName = fileName;
   try {
-    fMapping = new file_mapping(fileName.c_str(), read_only);
-    fRegion = new mapped_region(*fMapping, read_only);
-    fStartAddress = static_cast<uint8_t*>(fRegion->get_address());
+    fFile.open(fFileName);
+    fStartAddress = fFile.data();
     fReadAddress = fStartAddress;
-    fSize = fRegion->get_size();
+    fSize = fFile.size();
   } catch(exception& exc) {
-    file_mapping::remove(fileName.c_str());
+    //file_mapping::remove(fileName.c_str());
     cerr<<Attribs::Bright<<Foreground::Red<<"Unhandled exception "<<exc.what()<<Attribs::Reset<<endl;
     return false;
   }
@@ -52,10 +51,10 @@ MidasFileHeader MidasFileManager::ReadHeader() {
   }
 
   //get the file header and advance the read address
-  uint32_t* fileHeaderWord = reinterpret_cast<uint32_t*>(fReadAddress);
+  const uint32_t* fileHeaderWord = reinterpret_cast<const uint32_t*>(fReadAddress);
   if((fileHeaderWord[0] & 0xffff) != 0x8000) {
     cerr<<Attribs::Bright<<Foreground::Red<<"ERROR! Bad Midas start number (should be 0x8000): 0x"<<hex<<fileHeaderWord[0]<<dec<<" = "<<fileHeaderWord[0]<<endl
-	<<"Value at read address  = '"<<fReadAddress<<"', at start address '"<<fStartAddress<<"'"<<Attribs::Reset<<endl;
+	<<"Read address  = 0x"<<hex<<fReadAddress<<", start address 0x"<<fStartAddress<<dec<<Attribs::Reset<<endl;
     exit(-1);
   }
   fReadAddress += 16;//4 32bit words => 16 bytes
@@ -72,7 +71,7 @@ MidasFileHeader MidasFileManager::ReadHeader() {
   }
 
   //read the header information and advance the read address
-  copy(reinterpret_cast<uint16_t*>(fReadAddress),reinterpret_cast<uint16_t*>(fReadAddress+fileHeaderWord[3]),fileHeader.Information().begin());
+  copy(reinterpret_cast<const uint16_t*>(fReadAddress),reinterpret_cast<const uint16_t*>(fReadAddress+fileHeaderWord[3]),fileHeader.Information().begin());
   fReadAddress += fileHeaderWord[3];
        
   return fileHeader;
@@ -97,25 +96,25 @@ bool MidasFileManager::ReadHeader(MidasEvent& event) {
   }
 
   //read the header information
-  event.fType = *(reinterpret_cast<uint16_t*>(fReadAddress));
+  event.fType = *(reinterpret_cast<const uint16_t*>(fReadAddress));
   fReadAddress += 2;
 
-  event.fMask = *(reinterpret_cast<uint16_t*>(fReadAddress));
+  event.fMask = *(reinterpret_cast<const uint16_t*>(fReadAddress));
   fReadAddress += 2;
 
-  event.fNumber = *(reinterpret_cast<uint32_t*>(fReadAddress));
+  event.fNumber = *(reinterpret_cast<const uint32_t*>(fReadAddress));
   fReadAddress += 4;
 
-  event.fTime = *(reinterpret_cast<uint32_t*>(fReadAddress));
+  event.fTime = *(reinterpret_cast<const uint32_t*>(fReadAddress));
   fReadAddress += 4;
 
-  event.fNofBytes = *(reinterpret_cast<uint32_t*>(fReadAddress));
+  event.fNofBytes = *(reinterpret_cast<const uint32_t*>(fReadAddress));
   fReadAddress += 4;
 
-  event.fTotalBankBytes = *(reinterpret_cast<uint32_t*>(fReadAddress));
+  event.fTotalBankBytes = *(reinterpret_cast<const uint32_t*>(fReadAddress));
   fReadAddress += 4;
 
-  event.fFlags = *(reinterpret_cast<uint32_t*>(fReadAddress));
+  event.fFlags = *(reinterpret_cast<const uint32_t*>(fReadAddress));
   fReadAddress += 4;
 
   if(fSettings->VerbosityLevel() > 2) {
@@ -237,10 +236,10 @@ int MidasFileManager::Read(Bank& bank, unsigned int maxBytes, unsigned int flags
     copy(fReadAddress,fReadAddress+4,bank.fName);
     fReadAddress += 4;
 
-    bank.fType = *(reinterpret_cast<uint32_t*>(fReadAddress));
+    bank.fType = *(reinterpret_cast<const uint32_t*>(fReadAddress));
     fReadAddress += 4;
 
-    bank.fSize = *(reinterpret_cast<uint32_t*>(fReadAddress));
+    bank.fSize = *(reinterpret_cast<const uint32_t*>(fReadAddress));
     fReadAddress += 4;
 
     if(bank.fSize > (maxBytes - nofHeaderBytes)) {
@@ -263,10 +262,10 @@ int MidasFileManager::Read(Bank& bank, unsigned int maxBytes, unsigned int flags
     copy(fReadAddress,fReadAddress+4,bank.fName);
     fReadAddress += 4;
 
-    bank.fType = static_cast<uint32_t>(*(reinterpret_cast<uint16_t*>(fReadAddress)));
+    bank.fType = static_cast<uint32_t>(*(reinterpret_cast<const uint16_t*>(fReadAddress)));
     fReadAddress += 2;
 
-    bank.fSize = static_cast<uint32_t>(*(reinterpret_cast<uint16_t*>(fReadAddress)));
+    bank.fSize = static_cast<uint32_t>(*(reinterpret_cast<const uint16_t*>(fReadAddress)));
     fReadAddress += 2;
 
     if(bank.fSize > (maxBytes - nofHeaderBytes)) {
@@ -293,7 +292,7 @@ int MidasFileManager::Read(Bank& bank, unsigned int maxBytes, unsigned int flags
     return -10;
   }
 
-  copy(reinterpret_cast<uint32_t*>(fReadAddress),reinterpret_cast<uint32_t*>(fReadAddress+bank.fSize),bank.fData.begin());
+  copy(reinterpret_cast<const uint32_t*>(fReadAddress),reinterpret_cast<const uint32_t*>(fReadAddress+bank.fSize),bank.fData.begin());
   fReadAddress += bank.fSize;
 
   if(bank.fSize%8 != 0) {
