@@ -1,24 +1,30 @@
 #include "Event.hh"
 
 ClassImp(Ulm)
-ClassImp(Germanium)
-ClassImp(Plastic)
-ClassImp(Silicon)
-ClassImp(BaF2)
+ClassImp(Detector)
 ClassImp(Event)
 
-Germanium::Germanium(uint32_t eventTime, uint32_t eventNumber, uint16_t detector, uint16_t energy, vector<uint16_t> subAddress, vector<uint16_t> time, Ulm ulm) 
-: fEventTime(eventTime), fEventNumber(eventNumber), fEnergy(energy), fSubAddress(subAddress), fTime(time), fUlm(ulm) {
+Adc::Adc(uint16_t detector, uint16_t rawEnergy)
+  : fDetector(detector), fRawEnergy(rawEnergy) {
 }
 
-Plastic::Plastic(uint32_t eventTime, uint32_t eventNumber, vector<uint16_t> detector, vector<uint16_t> energy, vector<uint16_t> subAddress, vector<uint16_t> time, Ulm ulm) 
-: fEventTime(eventTime), fEventNumber(eventNumber), fEnergy(energy), fSubAddress(subAddress), fTime(time), fUlm(ulm) {
+Tdc::Tdc(uint16_t subAddress, uint16_t time)
+  : fSubAddress(subAddress), fTime(time) {
 }
 
-Silicon::Silicon(uint32_t eventTime, uint32_t eventNumber, vector<uint16_t> detector, vector<uint16_t> energy, vector<uint16_t> subAddress, vector<uint16_t> time, Ulm ulm) 
-: fEventTime(eventTime), fEventNumber(eventNumber), fEnergy(energy), fSubAddress(subAddress), fTime(time), fUlm(ulm) {
-}
+Detector::Detector(uint32_t eventTime, uint32_t eventNumber,  uint8_t detectorType, vector<uint16_t> detector, vector<uint16_t> rawEnergy, vector<uint16_t> subAddress, vector<uint16_t> time, Ulm ulm) 
+  : fEventTime(eventTime), fEventNumber(eventNumber), fDetectorType(detectorType), fUlm(ulm) {
+  if(detector.size() != rawEnergy.size()) {
+    throw;
+  }
+  for(size_t i = 0; i < detector.size(); ++i) {
+    fAdc.push_back(Adc(detector[i],rawEnergy[i]));
+  }
 
-BaF2::BaF2(uint32_t eventTime, uint32_t eventNumber, vector<uint16_t> detector, vector<uint16_t> energy, vector<uint16_t> subAddress, vector<uint16_t> time, Ulm ulm) 
-: fEventTime(eventTime), fEventNumber(eventNumber), fEnergy(energy), fSubAddress(subAddress), fTime(time), fUlm(ulm) {
+  if(subAddress.size() != time.size()) {
+    throw;
+  }
+  for(size_t i = 0; i < subAddress.size(); ++i) {
+    fTdc.push_back(Adc(subAddress[i],time[i]));
+  }
 }

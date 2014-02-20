@@ -89,10 +89,10 @@ private:
   //scaler data
   vector<vector<uint16_t> > fMcs;
   //buffers to store events
-  boost::circular_buffer<Germanium> fGermanium;
-  boost::circular_buffer<Plastic> fPlastic;
-  boost::circular_buffer<Silicon> fSilicon;
-  boost::circular_buffer<BaF2> fBaF2;
+  boost::circular_buffer<Detector> fUncalibratedDetector;
+  boost::circular_buffer<Detector> fWaitingDetector;
+  boost::circular_buffer<Detector> fCalibratedDetector;
+
   boost::circular_buffer<Event> fInputBuffer;
   boost::circular_buffer<Event> fCalibratedBuffer;
   boost::circular_buffer<Event> fOutputBuffer;

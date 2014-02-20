@@ -310,10 +310,9 @@ void MidasEventProcessor::GermaniumEvent(Bank& bank, size_t feraEnd, uint32_t ev
   uint16_t tmp;
   uint16_t vsn;
   uint16_t feraType;
-  uint16_t detector = fSettings->NofGermaniumDetectors();
-  uint16_t energy;
-  vector<uint16_t> subAddress;
-  vector<uint16_t> time;
+  vector<uint16_t> detector;
+  vector<uint16_t> energy;
+  map<uint16_t, vector<uint16_t> > time;
   Ulm ulm;
 
   while(bank.ReadPoint() < feraEnd) {
@@ -347,13 +346,14 @@ void MidasEventProcessor::GermaniumEvent(Bank& bank, size_t feraEnd, uint32_t ev
     switch(feraType) {
     case VHAD1141:
       //Process the ADC, and check if it's followed immediately by a TDC
-      detector = vsn;
-      if(detector >= fSettings->NofGermaniumDetectors()) {
-	cerr<<Attribs::Bright<<Foreground::Red<<"Invalid detector number ("<<detector<<") in Event "<<bank.EventNumber()<<", Bank "<<bank.Number()<<Attribs::Reset<<endl;
+      detector.push_back(vsn);
+      if(detector.back() >= fSettings->NofGermaniumDetectors()) {
+	cerr<<Attribs::Bright<<Foreground::Red<<"Invalid detector number ("<<detector.back()<<") in Event "<<bank.EventNumber()<<", Bank "<<bank.Number()<<Attribs::Reset<<endl;
       }
       
-      if(GetAdc114(bank, feraEnd, energy)) {
-	GetTdc3377(bank, feraEnd, subAddress, time);
+      energy.push_back(0);
+      if(GetAdc114(bank, feraEnd, energy.back())) {
+	GetTdc3377(bank, feraEnd, time);
 	++fCounter[VH3377];
       }
       ++fCounter[VHAD1141];
@@ -361,20 +361,21 @@ void MidasEventProcessor::GermaniumEvent(Bank& bank, size_t feraEnd, uint32_t ev
 
     case VHAD1142:
       //Process the ADC, and check if it's followed immediately by a TDC
-      detector = vsn + 16;
-      if(detector >= fSettings->NofGermaniumDetectors()) {
-	cerr<<Attribs::Bright<<Foreground::Red<<"Invalid detector number ("<<detector<<") in Event "<<bank.EventNumber()<<", Bank "<<bank.Number()<<Attribs::Reset<<endl;
+      detector.push_back(vsn + 16);
+      if(detector.back() >= fSettings->NofGermaniumDetectors()) {
+	cerr<<Attribs::Bright<<Foreground::Red<<"Invalid detector number ("<<detector.back()<<") in Event "<<bank.EventNumber()<<", Bank "<<bank.Number()<<Attribs::Reset<<endl;
       }
 
-      if(GetAdc114(bank, feraEnd, energy)) {
-	GetTdc3377(bank, feraEnd, subAddress, time);
+      energy.push_back(0);
+      if(GetAdc114(bank, feraEnd, energy.back())) {
+	GetTdc3377(bank, feraEnd, time);
 	++fCounter[VH3377];
       }
       ++fCounter[VHAD1142];
       break;
 
     case VH3377: /* 3377 TDC */
-      GetTdc3377(bank, feraEnd, time, subAddress);
+      GetTdc3377(bank, feraEnd, time);
       ++fCounter[VH3377];
       break;
 
@@ -408,8 +409,32 @@ void MidasEventProcessor::GermaniumEvent(Bank& bank, size_t feraEnd, uint32_t ev
     }
   }
 
+  //check energies
+  CheckEnergies(detector, energy);
+
+  //check that we got one energy per detector
+  if(detector.size() != energy.size()) {
+    cerr<<Attribs::Bright<<Foreground::Red<<"Found "<<detector.size()<<" detectors with "<<energy.size()<<" energies!"<<endl;
+    return;
+  }
+
+  //drop all deactivated detectors
+  for(size_t i = 0; i < detector.size(); ++i) {
+    if(fSettings->ActiveGermanium(detector[i])) {
+      detector.erase(detector.begin()+i);
+      energy.erase(energy.begin()+i);
+    }
+  }
+  //stop if all detectors were deactivated
+  if(detector.size() == 0) {
+    return;
+  }
+
+  //check the times
+  CheckTimes(detector, energy);
+
   //need to take care of: clockstate, ulm overflows, live clock overflows, dead times
-  fGermanium.push_back(Germanium(eventTime, eventNumber, detector, energy, subAddress, time, ulm));
+  fUncalibratedDetector.push_back(Detector(eventTime, eventNumber, 0, detector, energy, time, ulm));
 }
 
 void MidasEventProcessor::PlasticEvent(Bank& bank, size_t feraEnd, uint32_t eventTime, uint32_t eventNumber) {
@@ -422,8 +447,7 @@ void MidasEventProcessor::PlasticEvent(Bank& bank, size_t feraEnd, uint32_t even
   uint16_t feraType;
   vector<uint16_t> detector;
   vector<uint16_t> energy;
-  vector<uint16_t> subAddress;
-  vector<uint16_t> time;
+  map<uint16_t, vector<uint16_t> > time;
   Ulm ulm;
 
   while(bank.ReadPoint() < feraEnd) {
@@ -461,7 +485,7 @@ void MidasEventProcessor::PlasticEvent(Bank& bank, size_t feraEnd, uint32_t even
       break;		    
 
     case VH3377: // 3377 TDC
-      GetTdc3377(bank, feraEnd, time, subAddress);
+      GetTdc3377(bank, feraEnd, time);
       ++fCounter[VH3377];
       break;
 
@@ -485,8 +509,26 @@ void MidasEventProcessor::PlasticEvent(Bank& bank, size_t feraEnd, uint32_t even
     }
   }
 
+  //check that we got one energy per detector
+  if(detector.size() != energy.size()) {
+    cerr<<Attribs::Bright<<Foreground::Red<<"Found "<<detector.size()<<" detectors with "<<energy.size()<<" energies!"<<endl;
+    return;
+  }
+
+  //drop all deactivated detectors
+  for(size_t i = 0; i < detector.size(); ++i) {
+    if(fSettings->ActivePlastic(detector[i])) {
+      detector.erase(detector.begin()+i);
+      energy.erase(energy.begin()+i);
+    }
+  }
+  //stop if all detectors were deactivated
+  if(detector.size() == 0) {
+    return;
+  }
+
   //need to take care of: clockstate, ulm overflows, live clock overflows, dead times
-  fPlastic.push_back(Plastic(eventTime, eventNumber, detector, energy, subAddress, time, ulm));
+  fUncalibratedDetector.push_back(Detector(eventTime, eventNumber, 0, detector, energy, time, ulm));
 }
 
 void MidasEventProcessor::SiliconEvent(Bank& bank, size_t feraEnd, uint32_t eventTime, uint32_t eventNumber) {
@@ -500,8 +542,7 @@ void MidasEventProcessor::SiliconEvent(Bank& bank, size_t feraEnd, uint32_t even
   int nofAdcs = 0;
   vector<uint16_t> detector;
   vector<uint16_t> energy;
-  vector<uint16_t> subAddress;
-  vector<uint16_t> time;
+  map<uint16_t, vector<uint16_t> > time;
   Ulm ulm;
 
   while(bank.ReadPoint() < feraEnd) {
@@ -549,14 +590,14 @@ void MidasEventProcessor::SiliconEvent(Bank& bank, size_t feraEnd, uint32_t even
 
       energy.push_back(0);
       if(GetAdc114(bank, feraEnd, energy.back())) {
-	GetTdc3377(bank, feraEnd, subAddress, time);
+	GetTdc3377(bank, feraEnd, time);
 	++fCounter[VH3377];
       }
       ++fCounter[VHAD114Si];
       break;		    
 
     case VH3377:
-      GetTdc3377(bank, feraEnd, time, subAddress);
+      GetTdc3377(bank, feraEnd, time);
       ++fCounter[VH3377];
       break;
 
@@ -580,8 +621,26 @@ void MidasEventProcessor::SiliconEvent(Bank& bank, size_t feraEnd, uint32_t even
     }
   }
 
+  //check that we got one energy per detector
+  if(detector.size() != energy.size()) {
+    cerr<<Attribs::Bright<<Foreground::Red<<"Found "<<detector.size()<<" detectors with "<<energy.size()<<" energies!"<<endl;
+    return;
+  }
+
+  //drop all deactivated detectors
+  for(size_t i = 0; i < detector.size(); ++i) {
+    if(fSettings->ActiveSilicon(detector[i])) {
+      detector.erase(detector.begin()+i);
+      energy.erase(energy.begin()+i);
+    }
+  }
+  //stop if all detectors were deactivated
+  if(detector.size() == 0) {
+    return;
+  }
+
   //need to take care of: clockstate, ulm overflows, live clock overflows, dead times
-  fSilicon.push_back(Silicon(eventTime, eventNumber, detector, energy, subAddress, time, ulm));
+  fUncalibratedDetector.push_back(Detector(eventTime, eventNumber, 0, detector, energy, time, ulm));
 }
 
 void MidasEventProcessor::BaF2Event(Bank& bank, size_t feraEnd, uint32_t eventTime, uint32_t eventNumber) {
@@ -594,8 +653,7 @@ void MidasEventProcessor::BaF2Event(Bank& bank, size_t feraEnd, uint32_t eventTi
   uint16_t feraType;
   vector<uint16_t> detector;
   vector<uint16_t> energy;
-  vector<uint16_t> subAddress;
-  vector<uint16_t> time;
+  map<uint16_t, vector<uint16_t> > time;
   Ulm ulm;
 
   while(bank.ReadPoint() < feraEnd) {
@@ -636,7 +694,7 @@ void MidasEventProcessor::BaF2Event(Bank& bank, size_t feraEnd, uint32_t eventTi
       break;	
 	
     case VH3377:
-      GetTdc3377(bank, feraEnd, time, subAddress);
+      GetTdc3377(bank, feraEnd, time);
       ++fCounter[VH3377];
       break;
 
@@ -660,8 +718,26 @@ void MidasEventProcessor::BaF2Event(Bank& bank, size_t feraEnd, uint32_t eventTi
     }
   }
 
+  //check that we got one energy per detector
+  if(detector.size() != energy.size()) {
+    cerr<<Attribs::Bright<<Foreground::Red<<"Found "<<detector.size()<<" detectors with "<<energy.size()<<" energies!"<<endl;
+    return;
+  }
+
+  //drop all deactivated detectors
+  for(size_t i = 0; i < detector.size(); ++i) {
+    if(fSettings->ActiveBaF2(detector[i])) {
+      detector.erase(detector.begin()+i);
+      energy.erase(energy.begin()+i);
+    }
+  }
+  //stop if all detectors were deactivated
+  if(detector.size() == 0) {
+    return;
+  }
+
   //need to take care of: clockstate, ulm overflows, live clock overflows, dead times
-  fBaF2.push_back(BaF2(eventTime, eventNumber, detector, energy, subAddress, time, ulm));
+  fUncalibratedDetector.push_back(Detector(eventTime, eventNumber, 0, detector, energy, time, ulm));
 }
 
 
@@ -712,12 +788,10 @@ bool MidasEventProcessor::GetAdc413(Bank& bank, uint16_t module, uint16_t nofDat
 }
 
 //read high and low word from tdc (extracting time and sub-address) until no more tdc data is left
-bool MidasEventProcessor::GetTdc3377(Bank& bank, uint32_t feraEnd, vector<uint16_t>& subAddress, vector<uint16_t>& time) {
-  subAddress.resize(0);
-  time.resize(0);
-
+bool MidasEventProcessor::GetTdc3377(Bank& bank, uint32_t feraEnd, map<uint16_t, vector<uint16_t> >& time) {
   uint16_t highWord;
   uint16_t lowWord;
+  uint16_t subAddress;
 
   while(bank.ReadPoint() < feraEnd) {
     if(!bank.Get(highWord)) {
@@ -738,9 +812,9 @@ bool MidasEventProcessor::GetTdc3377(Bank& bank, uint32_t feraEnd, vector<uint16
       return false;
     }
 
-    subAddress.push_back((highWord&TDC3377_IDENTIFIER) >> 10);
-    time.push_back(((highWord&TDC3377_TIME) << 8) | (lowWord&TDC3377_TIME));
-    ++fSubAddress[subAddress.back()];
+    subAddress = (highWord&TDC3377_IDENTIFIER) >> 10;
+    time[subAddress].push_back(((highWord&TDC3377_TIME) << 8) | (lowWord&TDC3377_TIME));
+    ++fSubAddress[subAddress];
   }
 
   return true;
@@ -805,6 +879,66 @@ bool MidasEventProcessor::GetUlm(Bank& bank, Ulm& ulm) {
 
 //----------------------------------------
 
+void MidasEventProcessor::ConstructEvents(const uint32_t& eventTime, const uint32_t& eventNumber, const EDetectorType& detectorType, vector<uint16_t>& detector, vector<uint16_t>& energy, map<uint16_t, vector<uint16_t> >& time, const Ulm& ulm) {
+  //check that we got one energy per detector
+  if(detector.size() != energy.size()) {
+    cerr<<Attribs::Bright<<Foreground::Red<<"Found "<<detector.size()<<" detectors with "<<energy.size()<<" energies!"<<Attribs::Reset<<endl;
+    return;
+  }
+
+  //drop all deactivated adcs
+  for(size_t i = 0; i < detector.size(); ++i) {
+    if(fSettings->Active(detectorType, detector[i])) {
+      detector.erase(detector.begin()+i);
+      energy.erase(energy.begin()+i);
+    }
+  }
+
+  //drop all deactivated tdcs
+  auto it = time.begin();
+  while(it != time.end()) {
+    if(fSettings->Active(detectorType, it.first)) {
+      time.erase(it++);//delete this map entry and then go to the next entry (post-increment)
+    } else {
+      ++it;//just go to the next entry
+    }
+  }
+
+  //stop if all detectors were deactivated
+  if(detector.size() == 0) {
+    if(time.size() != 0) {
+      cout<<Foreground::Red<<"No active adcs, but "<<time.size()<<" active tdcs"<<Attribs::Reset<<endl;
+    } else if(fSettings->VerbosityLevel() > 2) {
+      cout<<Foreground::Red<<"No active adcs and no active tdcs"<<Attribs::Reset<<endl;      
+    }
+    return;
+  }
+
+  //now loop over all detectors, create the event, fill the detector number and energy, find the corresponding times, and fill them too
+  for(size_t i = 0; i < detector.size(); ++i) {
+    fUncalibratedDetector.push_back(Detector(eventTime, eventNumber, detectorType, detector[i], energy[i], ulm));
+    //check that we have any times for this detector
+    if(time.find(detector[i]) != time.end() && time.at(detector[i]).size() > 0) {
+      fUncalibratedDetector.back().TdcHits(time[detector[i]].size());
+      //find the right tdc hit
+      //since any good tdc hit creates a deadtime w/o anymore tdc hits, we want the last one
+      //the tdcs are LIFO, so the last hit is the first coming out
+      //however in Greg's FIFO.c he uses the last time found within the coarse window or (if none is found) the very first time
+      for(const auto& thisTime : time[detector[i]]) {
+	if(fSettings->CoarseTdcWindow(detectorType,detector[i],thisTime)) {
+	  fUncalibratedDetector.back().Time(thisTime);
+	}
+      }
+    } else {
+      //no tdc hits found for this detector
+    }
+  }//for detector
+
+
+}
+
+//----------------------------------------
+
 void MidasEventProcessor::Flush() {
   //set flushing to true (this triggers the flushing)
   fFlushing = true;
@@ -859,9 +993,35 @@ void MidasEventProcessor::Print() {
   }
 }
 
-//start calibration thread (takes events from the input buffer, calibrates them and puts them into the calibrated buffer)
+//start calibration thread (takes events from the input buffers, calibrates them and puts them into the calibrated buffer)
 void MidasEventProcessor::Calibrate() {
-//      while(fInputBuffer.size() > 0) {
+  //we keep running until all detectors are calibrated and we're told to flush
+  while(!fFlushing || fUncalibratedDetector.size() > 0) {
+    //we only use the first uncalibrated detector, as we're running in parallel to a thread that adds elements to the vector
+    //to minimize the time we have to lock the queue, we get the first element from it into the waiting queue and then delete it
+    lock;
+    fWaitingDetector.push_back(fUncalibratedDetector.front());
+    fUncalibratedDetector.pop_front();
+    unlock;
+    //loop over all adcs in this detector and calibrate them
+    for(auto& adc : fWaitingDetector.back().Adc()) {
+      fEnergyHistogram[fWaitingDetector.back().DetectorType()][adc.Detector()]->Fill(adc.Energy());
+      fRawEnergy[fWaitingDetector.back().DetectorType()][adc.Detector()].push_back(adc.Energy());
+      //check whether we have enough events in histogram to start calibrating
+      if(fRawEnergy[fDetector.front().DetectorType()][adc.Detector()].size() > fSettings->MinimumCounts(fWaitingDetector.back().DetectorType())) {
+	//calibrate
+
+	//we're done calibrating so we can remove the first energy from the spectrum and queue
+	firstRawEnergy = fRawEnergy[fDetector.front().DetectorType()][adc.Detector()].front();
+	fEnergyHistogram[fDetector.front().DetectorType()][adc.Detector()]->Fill(firstRawEnergy,-1);
+	fRawEnergy[fDetector.front().DetectorType()][adc.Detector()].pop_front();
+	//we can now use the first raw energy to calculate the energy, add it to the first waiting event of this detector
+	  
+      }
+    }//adc loop
+    //remove from uncalibrated queue
+    fUncalibratedDetector.
+      }//detector loop
 //	//check if this detector is active
 //	if(ACTIVE_DETECTORS & (1 << fInputBuffer.front().DetectorType())) {
 //	  //we've got an active detector

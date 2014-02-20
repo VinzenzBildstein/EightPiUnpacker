@@ -11,6 +11,15 @@
 
 using namespace std;
 
+enum EDetectorType {
+  kGermanium,
+  kPlastic,
+  kSilicon,
+  kBaF2,
+  kUnknown
+};
+
+
 class Ulm : public TObject {
 public:
   Ulm(){};
@@ -50,72 +59,88 @@ private:
   ClassDef(Ulm,1);
 };
 
-class Germanium : public TObject {
+class Adc : public TObject {
 public:
-  Germanium(uint32_t eventTime, uint32_t eventNumber, uint16_t detector, uint16_t energy, vector<uint16_t> subAddress, vector<uint16_t> time, Ulm ulm);
-  Germanium(){};
-  ~Germanium(){};
+  Adc(uint16_t, uint16_t);
+  Adc(){};
+  ~Adc(){};
+
+  void Energy(float energy) {
+    fEnergy = energy;
+  }
+
+  uint16_t Detector() {
+    return fDetector;
+  }
+  uint16_t RawEnergy() {
+    return fRawEnergy;
+  }
+  float Energy() {
+    return fEnergy;
+  }
+
 private:
-  uint32_t fEventTime;
-  uint32_t fEventNumber;
   uint16_t fDetector;
-  uint16_t fEnergy;
-  vector<uint16_t> fSubAddress;
-  vector<uint16_t> fTime;
-  Ulm fUlm;
+  uint16_t fRawEnergy;
+  float fEnergy;
 
-  ClassDef(Germanium,1);
+  ClassDef(Adc,1);
 };
 
-class Plastic : public TObject {
+class Tdc : public TObject {
 public:
-  Plastic(uint32_t eventTime, uint32_t eventNumber, vector<uint16_t> detector, vector<uint16_t> energy, vector<uint16_t> subAddress, vector<uint16_t> time, Ulm ulm);
-  Plastic(){};
-  ~Plastic(){};
+  Tdc(uint16_t, uint16_t);
+  Tdc(){};
+  ~Tdc(){};
+
+  uint16_t SubAddress() {
+    return fSubAddress;
+  }
+  uint16_t Time() {
+    return fTime;
+  }
+
+private:
+  uint16_t fSubAddress;
+  uint16_t fTime;
+
+  ClassDef(Tdc,1);
+};
+
+class Detector : public TObject {
+public:
+  Detector(uint32_t eventTime, uint32_t eventNumber, uint8_t detectorType, vector<uint16_t> detector, vector<uint16_t> energy, vector<uint16_t> subAddress, vector<uint16_t> time, Ulm ulm);
+  Detector(){};
+  ~Detector(){};
+
+  uint32_t EventTime() {
+    return fEventTime;
+  }
+  uint32_t EventNumber() {
+    return fEventNumber;
+  }
+  uint8_t DetectorType() {
+    return fDetectorType;
+  }
+  vector<Adc> GetAdc() {
+    return fAdc;
+  }
+  vector<Tdc> GetTdc() {
+    return fTdc;
+  }
+  Ulm GetUlm() {
+    return fUlm;
+  }
+
 private:
   uint32_t fEventTime;
   uint32_t fEventNumber;
-  vector<uint16_t> fDetector;
-  vector<uint16_t> fEnergy;
-  vector<uint16_t> fSubAddress;
-  vector<uint16_t> fTime;
+  uint8_t fDetectorType;//0 = germanium, 1 = plastic, 2 = silicon, 3 = BaF2/LaBr3
+  vector<Adc> fAdc;
+  vector<Tdc> fTdc;
   Ulm fUlm;
 
-  ClassDef(Plastic,1);
-};
-
-class Silicon : public TObject {
-public:
-  Silicon(uint32_t eventTime, uint32_t eventNumber, vector<uint16_t> detector, vector<uint16_t> energy, vector<uint16_t> subAddress, vector<uint16_t> time, Ulm ulm);
-  Silicon(){};
-  ~Silicon(){};
-private:
-  uint32_t fEventTime;
-  uint32_t fEventNumber;
-  vector<uint16_t> fDetector;
-  vector<uint16_t> fEnergy;
-  vector<uint16_t> fSubAddress;
-  vector<uint16_t> fTime;
-  Ulm fUlm;
-
-  ClassDef(Silicon,1);
-};
-
-class BaF2 : public TObject {
-public:
-  BaF2(uint32_t eventTime, uint32_t eventNumber, vector<uint16_t> detector, vector<uint16_t> energy, vector<uint16_t> subAddress, vector<uint16_t> time, Ulm ulm);
-  BaF2(){};
-  ~BaF2(){};
-private:
-  uint32_t fEventTime;
-  uint32_t fEventNumber;
-  vector<uint16_t> fDetector;
-  vector<uint16_t> fEnergy;
-  vector<uint16_t> fSubAddress;
-  vector<uint16_t> fTime;
-  Ulm fUlm;
-
-  ClassDef(BaF2,1);
+  ClassDef(Detector,1);
 };
 
 class Event : public TObject {
@@ -123,10 +148,7 @@ public:
   Event(){};
   ~Event(){};
 private:
-  vector<Germanium> fGermanium;
-  vector<Plastic> fPlastic;
-  vector<Silicon> fSilicon;
-  vector<BaF2> fBaF2;
+  vector<Detector> fDetector;
   ClassDef(Event,1);
 };
 
