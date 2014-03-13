@@ -2,8 +2,10 @@
 #define __SETTINGS_HH
 
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
+#include <map>
 
 #define ULM_CYCLE        0x03ff     //Mask used to extract ULM cycle number from fera stream
 #define ULM_BEAM_STATUS  0x0400   //Mask used to extract beam status. (0 = off, 1 = on)
@@ -69,45 +71,156 @@
 #define EPICSEVENTTYPE 5
 #define FILEEND 0x8001
 
-using namespace std;
+enum class EDetectorType : uint8_t {
+  kGermanium,
+  kPlastic,
+  kSilicon,
+  kBaF2,
+  kUnknown
+};
 
 class Settings {
 public:
-  Settings(string, int);
+  Settings(std::string, int);
   ~Settings(){};
 
   int VerbosityLevel() {
     return fVerbosityLevel;
   }
 
-  string DetectorType(uint32_t);
+  std::string DetectorType(uint32_t);
+  bool CoarseTdcWindow(const EDetectorType&, const uint16_t&,const uint16_t&);
+  size_t MinimumCounts(const uint8_t& detectorType) {
+    if(fMinimumCounts.find(detectorType) == fMinimumCounts.end()) {
+      return 0;
+    }
+    return fMinimumCounts[detectorType];
+  }
+
+  bool Active(const EDetectorType& detectorType, const uint16_t& detectorNumber) {
+    if(fActiveDetectors.find(static_cast<uint8_t>(detectorType)) == fActiveDetectors.end()) {
+      return false;
+    }
+    return fActiveDetectors[static_cast<uint8_t>(detectorType)][detectorNumber];
+  }
 
   int NofGermaniumDetectors() {
     return fNofGermaniumDetectors;
   }
+  int MaxGermaniumChannel() {
+    return fMaxGermaniumChannel;
+  }
   int NofPlasticDetectors() {
     return fNofPlasticDetectors;
+  }
+  int MaxPlasticChannel() {
+    return fMaxPlasticChannel;
   }
   int NofSiliconDetectors() {
     return fNofSiliconDetectors;
   }
+  int MaxSiliconChannel() {
+    return fMaxSiliconChannel;
+  }
   int NofBaF2Detectors() {
     return fNofBaF2Detectors;
   }
+  int MaxBaF2Channel() {
+    return fMaxBaF2Channel;
+  }
 
+  //-------------------- calibration
+  float Sigma() {
+    return fSigma;
+  }
+  double PeakThreshold() {
+    return fPeakThreshold;
+  }
+  int NofDeconvIterations() {
+    return fNofDevonvIterations;
+  }
+  int NofFitIterations() {
+    return fNofFitIterations;
+  }
+  double FitConvergenceCoeff() {
+    return fFitConvergenceCoeff;
+  }
+  int NofPeaks(uint8_t detectorType, uint16_t detectorNumber) {
+    return fNofPeaks[detectorType][detectorNumber];
+  }
+  int InRoughWindow(uint8_t detectorType, uint16_t detectorNumber, double channel) {
+    if(fRoughWindow.find(detectorType) != fRoughWindow.end()) {
+      for(int i = 0; i < (int) (fRoughWindow[detectorType][detectorNumber].size()); ++i) {
+	if(fRoughWindow[detectorType][detectorNumber][i].first <= channel && channel <= fRoughWindow[detectorType][detectorNumber][i].second) {
+	  return i;
+	}
+      }
+    }
+    return -1;
+  }
+  std::string PrintWindow(uint8_t detectorType, uint16_t detectorNumber, size_t index) {
+    std::stringstream res;
+    res<<fRoughWindow[detectorType][detectorNumber][index].first<<" - "<<fRoughWindow[detectorType][detectorNumber][index].second;
+    return res.str();
+  }
+  double Energy(uint8_t detectorType, uint16_t detectorNumber, size_t index) {
+    return fEnergy[detectorType][detectorNumber][index];
+  }
+
+  //-------------------- event building
+  bool InWaitingWindow(const uint32_t& firstTime, const uint32_t& secondTime) {
+    return int(secondTime - firstTime) < fWaitingWindow;
+  }
+
+  bool Coincidence(const uint32_t& firstTime, const uint32_t& secondTime) {
+    return int(secondTime - firstTime) < fCoincidenceWindow;
+  }
+
+  //-------------------- misc
   const char* TemperatureFile() {
     return fTemperatureFileName.c_str();
+  }
+  int UncalibratedBufferSize() {
+    return fUncalibratedBufferSize;
+  }
+  int BuiltEventsSize() {
+    return fBuiltEventsSize;
   }
 
 private:
   int fVerbosityLevel;
 
-  string fTemperatureFileName;
+  std::string fTemperatureFileName;
+
+  int fUncalibratedBufferSize;
+  int fBuiltEventsSize;
 
   int fNofGermaniumDetectors;
+  int fMaxGermaniumChannel;
   int fNofPlasticDetectors;
+  int fMaxPlasticChannel;
   int fNofSiliconDetectors;
+  int fMaxSiliconChannel;
   int fNofBaF2Detectors;
+  int fMaxBaF2Channel;
+
+  std::map<uint8_t, std::vector<bool> > fActiveDetectors;
+  std::map<uint8_t, std::vector<std::pair<uint16_t, uint16_t> > > fCoarseTdcWindows;
+  std::map<uint8_t, size_t> fMinimumCounts;
+
+  //-------------------- event building
+  int fWaitingWindow;
+  int fCoincidenceWindow;
+
+  //-------------------- calibration
+  float fSigma;
+  double fPeakThreshold;
+  int fNofDevonvIterations;
+  int fNofFitIterations;
+  double fFitConvergenceCoeff;
+  std::map<uint8_t, std::vector<uint16_t> > fNofPeaks;
+  std::map<uint8_t, std::vector<std::vector<std::pair<uint16_t,uint16_t> > > > fRoughWindow;
+  std::map<uint8_t, std::vector<std::vector<double> > > fEnergy;
 };
 
 #endif

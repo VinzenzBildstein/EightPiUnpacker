@@ -3,6 +3,7 @@
 
 #include <thread>
 #include <fstream>
+#include <set>
 #include <boost/circular_buffer.hpp>
 
 #include "TTree.h"
@@ -10,6 +11,9 @@
 
 #include "MidasFileManager.hh"
 #include "Settings.hh"
+#include "Calibration.hh"
+
+#define STANDARD_WAIT_TIME 10
 
 class ClockState {
 public:
@@ -25,19 +29,19 @@ public:
 private:
   uint32_t fCycleStartTime;
   uint32_t fNofStoredCycles;
-  map<uint32_t,uint32_t> fLastUlmClock;
-  map<uint32_t,uint32_t> fLastDeadTime;
-  map<uint32_t,uint32_t> fLastLiveTime;
-  map<uint32_t,uint32_t> fNofLiveTimeOverflows;
+  std::map<uint32_t,uint32_t> fLastUlmClock;
+  std::map<uint32_t,uint32_t> fLastDeadTime;
+  std::map<uint32_t,uint32_t> fLastLiveTime;
+  std::map<uint32_t,uint32_t> fNofLiveTimeOverflows;
 };
 
 class MidasEventProcessor {
 public:
-  MidasEventProcessor(Settings*,TTree*);
+  MidasEventProcessor(Settings*,TTree*,bool);
   ~MidasEventProcessor();
   //use default moving constructor and assignment
   MidasEventProcessor(MidasEventProcessor&&) = default;
-  //MidasEventProcessor& operator=(MidasEventProcessor&) = default;//creates error in gcc 4.7, should be fixed in 4.8???
+  MidasEventProcessor& operator=(MidasEventProcessor&) = default;
   //disallow copying constructor and assignment
   MidasEventProcessor(const MidasEventProcessor&) = delete;
   MidasEventProcessor& operator=(const MidasEventProcessor&) = delete;
@@ -53,10 +57,11 @@ private:
   void Calibrate();
   void BuildEvents();
   void FillTree();
+  void StatusUpdate();
 
   //process the different midas event types
   bool FifoEvent(MidasEvent&);
-  bool CamacScalerEvent(MidasEvent&, vector<vector<uint16_t> >);
+  bool CamacScalerEvent(MidasEvent&, std::vector<std::vector<uint16_t> >);
   bool EpicsEvent(MidasEvent&);
 
   //process the different detector types
@@ -67,42 +72,58 @@ private:
 
   //process the different electronic modules
   bool GetAdc114(Bank&, uint32_t, uint16_t&);
-  bool GetAdc413(Bank&, uint16_t, uint16_t, vector<uint16_t>&, vector<uint16_t>&);
-  bool GetTdc3377(Bank&, uint32_t, vector<uint16_t>&, vector<uint16_t>&);
-  bool GetAdc4300(Bank&, uint16_t, uint16_t, vector<uint16_t>&, vector<uint16_t>&);
+  bool GetAdc413(Bank&, uint16_t, uint16_t, std::vector<std::pair<uint16_t, uint16_t> >&);
+  bool GetTdc3377(Bank&, uint32_t, std::map<uint16_t, std::vector<uint16_t> >&);
+  bool GetAdc4300(Bank&, uint16_t, uint16_t, std::vector<std::pair<uint16_t, uint16_t> >&);
   bool GetUlm(Bank&, Ulm&);
 
+  void ConstructEvents(const uint32_t&, const uint32_t&, const EDetectorType&, std::vector<std::pair<uint16_t, uint16_t> >&, std::map<uint16_t, std::vector<uint16_t> >&, const Ulm&);
+
+  enum EProcessStatus {
+    kRun,
+    kFlush
+  };
+
+private:
   Settings* fSettings;
+  Calibration fCalibration;
   TTree* fTree;
 
-  bool fFlushing = false;
+  EProcessStatus fStatus;
   Event* fLeaf = nullptr;
 
   //variable to keep track of number of events per detector type
-  map<uint16_t,uint32_t> fNofMidasEvents;
+  std::map<uint16_t,uint32_t> fNofMidasEvents;
   //keep track how often a bank has appeared in the data
-  map<uint32_t, uint32_t> fBankCounter;
+  std::map<uint32_t, uint32_t> fBankCounter;
   //keep track how often a fera type has appeared in the data
-  map<uint16_t, uint32_t> fCounter;
+  std::map<uint16_t, uint32_t> fCounter;
   //keep track how often a tdc sub-address has appeared in the data
-  map<uint16_t, uint32_t> fSubAddress;
-  //scaler data
-  vector<vector<uint16_t> > fMcs;
-  //buffers to store events
-  boost::circular_buffer<Detector> fUncalibratedDetector;
-  boost::circular_buffer<Detector> fWaitingDetector;
-  boost::circular_buffer<Detector> fCalibratedDetector;
+  std::map<uint16_t, uint32_t> fSubAddress;
+  //keep track of dropped detectors (marked as inactive)
+  std::map<uint8_t, std::map<uint16_t, uint32_t> > fDroppedDetector;
+  size_t fNofUncalibratedDetectors;
+  size_t fNofWaiting;
+  size_t fNofCalibratedDetectors;
+  size_t fNofBuiltEvents;
 
-  boost::circular_buffer<Event> fInputBuffer;
-  boost::circular_buffer<Event> fCalibratedBuffer;
-  boost::circular_buffer<Event> fOutputBuffer;
+  //scaler data
+  std::vector<std::vector<uint16_t> > fMcs;
+  //buffers to store detectors/events
+  boost::circular_buffer<Detector> fUncalibratedDetector;
+  std::map<uint8_t,std::vector<boost::circular_buffer<Detector> > > fWaiting;
+  std::multiset<Detector> fCalibratedDetector;
+  boost::circular_buffer<Event> fBuiltEvents;
+
+  //calibration histograms
+  std::vector<std::vector<TH1I*> > fRawEnergyHistograms;
   //variables to keep track of last event
   uint32_t fLastEventNumber;
   uint32_t fLastEventTime;
-  map<uint32_t,uint32_t> fLastFifoSerial;
-  map<uint32_t,uint32_t> fNofZeros;
+  std::map<uint32_t,uint32_t> fLastFifoSerial;
+  std::map<uint32_t,uint32_t> fNofZeros;
   //the threads that are being started in the constructor
-  vector<thread> fThreads;
+  std::vector<std::thread> fThreads;
   //clock state
   ClockState fClockState;
 
@@ -112,7 +133,7 @@ private:
   size_t fEventsInCycle;
 
   //temperature output file
-  ofstream fTemperatureFile;
+  std::ofstream fTemperatureFile;
 };
 
 #endif

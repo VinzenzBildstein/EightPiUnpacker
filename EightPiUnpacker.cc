@@ -13,24 +13,24 @@
 #include "MidasEventProcessor.hh"
 #include "Settings.hh"
 
-using namespace std;
-
 void exitFunction() {
   //reset the text attributes of std-out and -err
-  cout<<Attribs::Reset<<flush;
-  cerr<<Attribs::Reset<<flush;
+  std::cout<<Attribs::Reset<<std::flush;
+  cerr<<Attribs::Reset<<std::flush;
 }
 
 int main(int argc, char** argv) {
   atexit(exitFunction);
   
   CommandLineInterface interface;
-  string midasFileName;
+  std::string midasFileName;
   interface.Add("-if","midas file name (required)",&midasFileName);
-  string rootFileName;
+  std::string rootFileName;
   interface.Add("-of","root file name (optional, default = replacing extension with .root)",&rootFileName);
-  string settingsFileName = "Settings.dat";
+  std::string settingsFileName = "Settings.dat";
   interface.Add("-sf","settings file name (optional, default = 'Settings.dat'",&settingsFileName);
+  bool statusUpdate = false;
+  interface.Add("-su","activate status update",&statusUpdate);
   int verbosityLevel = 0;
   interface.Add("-vl","level of verbosity (optional, default = 0)",&verbosityLevel);
   
@@ -38,32 +38,32 @@ int main(int argc, char** argv) {
   interface.CheckFlags(argc, argv);
 
   if(midasFileName.empty()) {
-    cerr<<Attribs::Bright<<Foreground::Red<<"I need the name of the midas file!"<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"I need the name of the midas file!"<<Attribs::Reset<<std::endl;
     return 1;
   }
 
   if(!FileExists(midasFileName)) {
-    cerr<<Attribs::Bright<<Foreground::Red<<"Failed to find midas file '"<<midasFileName<<"'"<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"Failed to find midas file '"<<midasFileName<<"'"<<Attribs::Reset<<std::endl;
     return 1;
   }
 
   if(rootFileName.empty()) {
     size_t extension = midasFileName.rfind('.');
 
-    if(extension == string::npos) {
-      cerr<<Attribs::Bright<<Foreground::Red<<"Failed tp find extension of midas file name, please provide root file name."<<Attribs::Reset<<endl;
+    if(extension == std::string::npos) {
+      std::cerr<<Attribs::Bright<<Foreground::Red<<"Failed tp find extension of midas file name, please provide root file name."<<Attribs::Reset<<std::endl;
       return 1;
     }
     rootFileName = midasFileName.substr(0,extension);
     rootFileName.append(".root");
     if(verbosityLevel > 0) {
-      cout<<"created root file name '"<<rootFileName<<"' from midas file name '"<<midasFileName<<"'"<<endl;
+      std::cout<<"created root file name '"<<rootFileName<<"' from midas file name '"<<midasFileName<<"'"<<std::endl;
     }
   }
 
   //-------------------- create/open the settings --------------------
   if(!FileExists(settingsFileName)) {
-    cerr<<Attribs::Bright<<Foreground::Red<<"Failed to find midas file '"<<settingsFileName<<"'"<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"Failed to find midas file '"<<settingsFileName<<"'"<<Attribs::Reset<<std::endl;
     return 1;
   }
   Settings settings(settingsFileName, verbosityLevel);
@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
   TFile rootFile(rootFileName.c_str(),"recreate");
 
   if(!rootFile.IsOpen()) {
-    cerr<<Attribs::Bright<<Foreground::Red<<"Failed to open root file '"<<rootFileName<<"' for writing"<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"Failed to open root file '"<<rootFileName<<"' for writing"<<Attribs::Reset<<std::endl;
     return 1;
   }
 
@@ -84,16 +84,16 @@ int main(int argc, char** argv) {
   size_t oldPosition = 0;
   MidasFileManager fileManager(midasFileName,&settings);
   MidasEvent currentEvent;
-  MidasEventProcessor eventProcessor(&settings,&tree);
+  MidasEventProcessor eventProcessor(&settings,&tree,statusUpdate);
 
   //-------------------- get the file header --------------------
   MidasFileHeader fileHeader = fileManager.ReadHeader();
   if(verbosityLevel > 0) {
-    cout<<"Run number: "<<fileHeader.RunNumber()<<endl
-	<<"Start time: "<<hex<<fileHeader.StartTime()<<dec<<endl
-	<<"Number of bytes in header: "<<fileHeader.InformationLength()<<dec<<endl
-	<<"Starting main loop:"<<endl
-	<<endl;
+    std::cout<<"Run number: "<<fileHeader.RunNumber()<<std::endl
+	<<"Start time: "<<hex<<fileHeader.StartTime()<<dec<<std::endl
+	<<"Number of bytes in header: "<<fileHeader.InformationLength()<<dec<<std::endl
+	<<"Starting main loop:"<<std::endl
+	<<std::endl;
   }
 
   //-------------------- main loop --------------------
@@ -108,21 +108,24 @@ int main(int argc, char** argv) {
     }
     totalEvents++;
     if(totalEvents%1000 == 0) {
-      cout<<setw(5)<<fixed<<setprecision(1)<<(100.*fileManager.Position())/fileManager.Size()<<"%: read "<<totalEvents<<" events ("<<1000./watch.RealTime()<<" events/s = "<<1000.*(fileManager.Position()-oldPosition)/watch.RealTime()<<" kB/s)\r"<<flush;
+      std::cout<<setw(5)<<fixed<<setprecision(1)<<(100.*fileManager.Position())/fileManager.Size()<<"%: read "<<totalEvents<<" events ("<<1000./watch.RealTime()<<" events/s = "<<1000.*(fileManager.Position()-oldPosition)/watch.RealTime()<<" kB/s)\r"<<std::flush;
       watch.Continue();
     }
   }
-  cout<<endl;
+  std::cout<<std::endl;
 
   //check whether we've reached the end of file
   if(fileManager.Status() != MidasFileManager::kEoF) {
-    cerr<<Attribs::Bright<<Foreground::Red<<"Failed to read all events, got only "<<totalEvents<<" events from "<<fileManager.Position()<<" bytes out of "<<fileManager.Size()<<" bytes."<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"Failed to read all events, got only "<<totalEvents<<" events from "<<fileManager.Position()<<" bytes out of "<<fileManager.Size()<<" bytes."<<Attribs::Reset<<std::endl;
+  } else if(verbosityLevel > 0) {
+    std::cout<<"Reached end of file after "<<totalEvents<<" events from "<<fileManager.Position()<<" bytes out of "<<fileManager.Size()<<" bytes."<<std::endl;
   }
 
   //-------------------- flush all events to file and close all files --------------------
   eventProcessor.Flush();
 
   fileManager.Close();
+  tree.Write();
   rootFile.Close();
   
   return 0;

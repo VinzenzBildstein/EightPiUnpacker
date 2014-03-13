@@ -1,4 +1,71 @@
-Germanium.NofDetectors:		20
-Plastic.NofDetectors:		20
-Silicon.NofDetectors:		5
-BaF2.NofDetectors:		10
+Calibration.Sigma:			2.
+Calibration.PeakThreshold:		0.1
+Calibration.NofDeconvIterations:	10000
+Calibration.NofFitIterations:		1000
+Calibration.FitConvergenceCoeff:	0.1
+Calibration.Germanium.MinCounts:	10000
+
+Germanium.NofDetectors:			20
+Plastic.NofDetectors:			20
+Silicon.NofDetectors:			5
+BaF2.NofDetectors:			10
+
+
+Germanium.0.Active:			true
+#  fCoarseTdcWindows[detType][i] = make_pair(env.GetValue(Form("Germanium.%d.",i),true),env.GetValue(Form("Germanium.%d.Active",i),true));
+#    fNofPeaks[detType][i] = env.GetValue(Form("Calibration.Germanium.%d.NofPeaks",i),0);
+#    fRoughWindow[detType][i].resize(fNofPeaks[detType][i]);
+#    for(int j = 0; j < fNofPeaks[detType][i]; ++j) {
+#      fRoughWindow[detType][i][j] = make_pair(env.GetValue(Form("Calibration.Germanium.%d.%d.LowerLimit",i,j),0), env.GetValue(Form("Calibration.Germanium.%d.%d.UpperLimit",i,j),0));
+#      fEnergy[detType][i][j] = env.GetValue(Form("Calibration.Germanium.%d.%d.Energy",i,j),0.);
+#    }
+#  }
+#  //plastic
+#  detType = static_cast<uint8_t>(EDetectorType::kPlastic);
+#  fMinimumCounts[detType] = env.GetValue("Calibration.Plastic.MinCounts",10000);
+#  fActiveDetectors[detType].resize(fNofPlasticDetectors);
+#  fCoarseTdcWindows[detType].resize(fNofPlasticDetectors);
+#  fNofPeaks[detType].resize(fNofPlasticDetectors);
+#  fRoughWindow[detType].resize(fNofPlasticDetectors);
+#  for(int i = 0; i < fNofPlasticDetectors; ++i) {
+#    fActiveDetectors[detType][i] = env.GetValue(Form("Plastic.%d.Active",i),true);
+#    fCoarseTdcWindows[detType][i] = make_pair(env.GetValue(Form("Plastic.%d.",i),true),env.GetValue(Form("Plastic.%d.Active",i),true));
+#    fNofPeaks[detType][i] = env.GetValue(Form("Calibration.Plastic.%d.NofPeaks",i),0);
+#    fRoughWindow[detType][i].resize(fNofPeaks[detType][i]);
+#    for(int j = 0; j < fNofPeaks[detType][i]; ++j) {
+#      fRoughWindow[detType][i][j] = make_pair(env.GetValue(Form("Calibration.Plastic.%d.%d.LowerLimit",i,j),0), env.GetValue(Form("Calibration.Plastic.%d.%d.UpperLimit",i,j),0));
+#      fEnergy[detType][i][j] = env.GetValue(Form("Calibration.Plastic.%d.%d.Energy",i,j),0.);
+#    }
+#  }
+#  //silicon
+#  detType = static_cast<uint8_t>(EDetectorType::kSilicon);
+#  fMinimumCounts[detType] = env.GetValue("Calibration.Silicon.MinCounts",10000);
+#  fActiveDetectors[detType].resize(fNofSiliconDetectors);
+#  fCoarseTdcWindows[detType].resize(fNofSiliconDetectors);
+#  fNofPeaks[detType].resize(fNofSiliconDetectors);
+#  fRoughWindow[detType].resize(fNofSiliconDetectors);
+#  for(int i = 0; i < fNofSiliconDetectors; ++i) {
+#    fActiveDetectors[detType][i] = env.GetValue(Form("Silicon.%d.Active",i),true);
+#    fCoarseTdcWindows[detType][i] = make_pair(env.GetValue(Form("Silicon.%d.",i),true),env.GetValue(Form("Silicon.%d.Active",i),true));
+#    fNofPeaks[detType][i] = env.GetValue(Form("Calibration.Silicon.%d.NofPeaks",i),0);
+#    fRoughWindow[detType][i].resize(fNofPeaks[detType][i]);
+#    for(int j = 0; j < fNofPeaks[detType][i]; ++j) {
+#      fRoughWindow[detType][i][j] = make_pair(env.GetValue(Form("Calibration.Silicon.%d.%d.LowerLimit",i,j),0), env.GetValue(Form("Calibration.Silicon.%d.%d.UpperLimit",i,j),0));
+#      fEnergy[detType][i][j] = env.GetValue(Form("Calibration.Silicon.%d.%d.Energy",i,j),0.);
+#    }
+#  }
+#  //BaF2
+#  detType = static_cast<uint8_t>(detType);
+#  fMinimumCounts[detType] = env.GetValue("Calibration.BaF2.MinCounts",10000);
+#  fActiveDetectors[detType].resize(fNofBaF2Detectors);
+#  fCoarseTdcWindows[detType].resize(fNofBaF2Detectors);
+#  fNofPeaks[detType].resize(fNofBaF2Detectors);
+#  fRoughWindow[detType].resize(fNofBaF2Detectors);
+#  for(int i = 0; i < fNofBaF2Detectors; ++i) {
+#    fActiveDetectors[detType][i] = env.GetValue(Form("BaF2.%d.Active",i),true);
+#    fCoarseTdcWindows[detType][i] = make_pair(env.GetValue(Form("BaF2.%d.",i),true),env.GetValue(Form("BaF2.%d.Active",i),true));
+#    fNofPeaks[detType][i] = env.GetValue(Form("Calibration.BaF2.%d.NofPeaks",i),0);
+#    fRoughWindow[detType][i].resize(fNofPeaks[detType][i]);
+#    for(int j = 0; j < fNofPeaks[detType][i]; ++j) {
+#      fRoughWindow[detType][i][j] = make_pair(env.GetValue(Form("Calibration.BaF2.%d.%d.LowerLimit",i,j),0), env.GetValue(Form("Calibration.BaF2.%d.%d.UpperLimit",i,j),0));
+#      fEnergy[detType][i][j] = env.GetValue(Form("Calibration.BaF2.%d.%d.Energy",i,j),0.);

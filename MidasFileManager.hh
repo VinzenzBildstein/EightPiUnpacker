@@ -8,9 +8,6 @@
 
 #include "Settings.hh"
 
-using namespace std;
-using namespace boost::iostreams;
-
 #define BANK32 0x10
 #define END_OF_FILE 0x8001
 
@@ -41,14 +38,14 @@ class MidasFileHeader {
   size_t InformationLength() {
     return fInformation.size();
   }
-  vector<unsigned short int>& Information() {
+  std::vector<unsigned short int>& Information() {
     return fInformation;
   }
 
  private:
   uint32_t fRunNumber;
   uint32_t fStartTime;
-  vector<uint16_t> fInformation;
+  std::vector<uint16_t> fInformation;
 };
 
 class MidasFileManager {
@@ -58,8 +55,11 @@ class MidasFileManager {
     kEoF
   };
 
-  MidasFileManager(){};
-  MidasFileManager(string fileName, Settings* settings) {
+  MidasFileManager() { 
+    fStatus = EFileStatus::kOkay; 
+  };
+  MidasFileManager(std::string fileName, Settings* settings) {
+    fStatus = EFileStatus::kOkay; 
     fSettings = settings;
     if(!Open(fileName)) {
       throw;
@@ -71,7 +71,7 @@ class MidasFileManager {
     return fStatus;
   }
 
-  bool Open(string);
+  bool Open(std::string);
   MidasFileHeader ReadHeader();
   bool Read(MidasEvent&);
 
@@ -106,9 +106,9 @@ private:
 
  private:
   Settings* fSettings;
-  mapped_file_source fFile;
+  boost::iostreams::mapped_file_source fFile;
   EFileStatus fStatus;
-  string fFileName;
+  std::string fFileName;
   size_t fSize;
   const char* fStartAddress;
   const char* fReadAddress;
@@ -164,13 +164,13 @@ public:
   uint32_t Size() {
     return fSize;
   }
-  vector<uint32_t> Data() {
+  std::vector<uint32_t> Data() {
     return fData;
   }
   size_t NofExtraBankBytes() {
     return fExtraBytes.size();
   }
-  vector<uint8_t> ExtraBytes() {
+  std::vector<uint8_t> ExtraBytes() {
     return fExtraBytes;
   }
   //return readpoint in bytes (readpoint itself is in 16bit words)
@@ -203,9 +203,9 @@ private:
   char fName[4];
   uint32_t fType;
   uint32_t fSize;
-  vector<uint32_t> fData;
+  std::vector<uint32_t> fData;
   
-  vector<uint8_t> fExtraBytes;
+  std::vector<uint8_t> fExtraBytes;
   
   size_t fNumber;
   uint32_t fEventNumber;
@@ -281,7 +281,7 @@ public:
   uint32_t Flags() {
     return fFlags;
   }
-  const vector<Bank>& Banks() {
+  const std::vector<Bank>& Banks() {
     return fBanks;
   }
 
@@ -295,7 +295,7 @@ private:
   uint32_t fTotalBankBytes;
   uint32_t fFlags;
 
-  vector<Bank> fBanks;
+  std::vector<Bank> fBanks;
 };
 
 #endif

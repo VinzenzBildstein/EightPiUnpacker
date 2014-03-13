@@ -9,21 +9,17 @@
 
 #include "Settings.hh"
 
-using namespace std;
-
-enum EDetectorType {
-  kGermanium,
-  kPlastic,
-  kSilicon,
-  kBaF2,
-  kUnknown
-};
-
-
 class Ulm : public TObject {
 public:
   Ulm(){};
   ~Ulm(){};
+
+  friend bool operator<(const Ulm& lh, const Ulm& rh) {
+    return lh.fClock < rh.fClock;
+  }
+  friend bool operator>(const Ulm& lh, const Ulm& rh) {
+    return lh.fClock < rh.fClock;
+  }
 
   void Header(uint16_t header) {
     fCycleNumber = header&ULM_CYCLE;
@@ -47,6 +43,22 @@ public:
   uint16_t CycleNumber() {
     return fCycleNumber;
   }
+  uint16_t TriggerMask() {
+    return fTriggerMask;
+  }
+  bool BeamStatus() {
+    return fBeamStatus;
+  }
+  uint32_t Clock() const {
+    return fClock;
+  }
+  uint32_t LiveClock() {
+    return fLiveClock;
+  }
+  uint32_t MasterCount() {
+    return fMasterCount;
+  }
+
 
 private:
   uint16_t fCycleNumber;
@@ -59,60 +71,30 @@ private:
   ClassDef(Ulm,1);
 };
 
-class Adc : public TObject {
-public:
-  Adc(uint16_t, uint16_t);
-  Adc(){};
-  ~Adc(){};
-
-  void Energy(float energy) {
-    fEnergy = energy;
-  }
-
-  uint16_t Detector() {
-    return fDetector;
-  }
-  uint16_t RawEnergy() {
-    return fRawEnergy;
-  }
-  float Energy() {
-    return fEnergy;
-  }
-
-private:
-  uint16_t fDetector;
-  uint16_t fRawEnergy;
-  float fEnergy;
-
-  ClassDef(Adc,1);
-};
-
-class Tdc : public TObject {
-public:
-  Tdc(uint16_t, uint16_t);
-  Tdc(){};
-  ~Tdc(){};
-
-  uint16_t SubAddress() {
-    return fSubAddress;
-  }
-  uint16_t Time() {
-    return fTime;
-  }
-
-private:
-  uint16_t fSubAddress;
-  uint16_t fTime;
-
-  ClassDef(Tdc,1);
-};
-
 class Detector : public TObject {
 public:
-  Detector(uint32_t eventTime, uint32_t eventNumber, uint8_t detectorType, vector<uint16_t> detector, vector<uint16_t> energy, vector<uint16_t> subAddress, vector<uint16_t> time, Ulm ulm);
+  Detector(uint32_t eventTime, uint32_t eventNumber, uint8_t detectorType, std::pair<uint16_t, uint16_t> energy, Ulm ulm);
   Detector(){};
   ~Detector(){};
 
+  friend bool operator<(const Detector& lh, const Detector& rh) {
+    return lh.fUlm < rh.fUlm;
+  }
+  friend bool operator>(const Detector& lh, const Detector& rh) {
+    return lh.fUlm < rh.fUlm;
+  }
+
+  void TdcHits(size_t tdcHits) {
+    fTdcHits = tdcHits;
+  }
+  void Time(uint16_t time) {
+    ++fTdcHitsInWindow;
+    fTime = time;
+  }
+  void Energy(float energy) {
+    fEnergy = energy;
+  }
+  
   uint32_t EventTime() {
     return fEventTime;
   }
@@ -122,13 +104,25 @@ public:
   uint8_t DetectorType() {
     return fDetectorType;
   }
-  vector<Adc> GetAdc() {
-    return fAdc;
+  uint16_t DetectorNumber() {
+    return fDetectorNumber;
   }
-  vector<Tdc> GetTdc() {
-    return fTdc;
+  uint16_t RawEnergy() {
+    return fRawEnergy;
   }
-  Ulm GetUlm() {
+  float Energy() {
+    return fEnergy;
+  }
+  uint16_t Time() {
+    return fTime;
+  }
+  size_t TdcHits() {
+    return fTdcHits;
+  }
+  size_t TdcHitsInWindow() {
+    return fTdcHitsInWindow;
+  }
+  const Ulm& GetUlm() const {
     return fUlm;
   }
 
@@ -136,8 +130,15 @@ private:
   uint32_t fEventTime;
   uint32_t fEventNumber;
   uint8_t fDetectorType;//0 = germanium, 1 = plastic, 2 = silicon, 3 = BaF2/LaBr3
-  vector<Adc> fAdc;
-  vector<Tdc> fTdc;
+
+  uint16_t fDetectorNumber;
+  uint16_t fRawEnergy;
+  float fEnergy;
+
+  uint16_t fTime;
+  size_t fTdcHits;
+  size_t fTdcHitsInWindow;
+
   Ulm fUlm;
 
   ClassDef(Detector,1);
@@ -145,10 +146,27 @@ private:
 
 class Event : public TObject {
 public:
+  Event(const std::vector<Detector>&);
   Event(){};
   ~Event(){};
+
+  size_t NofDetectors() {
+    return fDetector.size();
+  }
+  Detector GetDetector(size_t index) {
+    return fDetector.at(index);
+  }
+
+  int Multiplicity(const uint8_t& detector) {
+    if(fMultiplicity.find(detector) == fMultiplicity.end()) {
+      return -1;
+    }
+    return fMultiplicity[detector];
+  }
+
 private:
-  vector<Detector> fDetector;
+  std::vector<Detector> fDetector;
+  std::map<uint8_t,int> fMultiplicity;
   ClassDef(Event,1);
 };
 

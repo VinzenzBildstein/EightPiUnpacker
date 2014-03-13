@@ -20,20 +20,21 @@ COMMON_DIR 	= $(HOME)/Common
 
 INCLUDES        = -I$(COMMON_DIR) -I.
 
-LIBRARIES	= CommandLineInterface Utilities TextAttributes pthread boost_iostreams
+LIBRARIES	= CommandLineInterface Utilities TextAttributes Spectrum pthread boost_iostreams
 
-CC		= /opt/centos/devtoolset-1.0/root/usr/bin/gcc
-CXX             = /opt/centos/devtoolset-1.0/root/usr/bin/g++
+CC		= /opt/gcc/bin/gcc
+CXX             = /opt/gcc/bin/g++
 CPPFLAGS 	= $(ROOTINC) $(INCLUDES) -fPIC
 CXXFLAGS	= -std=c++11 -pedantic -Wall -Wno-long-long -g -O3
 
 LDFLAGS		= -g -fPIC
 
-LDLIBS 		= -L$(LIB_DIR) $(ROOTLIBS) $(addprefix -l,$(LIBRARIES))
+LDLIBS 		= -L$(LIB_DIR) -Wl,-rpath,/opt/gcc/lib64 $(ROOTLIBS) $(addprefix -l,$(LIBRARIES))
 
 LOADLIBES = \
 	MidasFileManager.o \
 	MidasEventProcessor.o \
+	Calibration.o \
 	Event.o \
 	Settings.o \
 	$(NAME)Dictionary.o

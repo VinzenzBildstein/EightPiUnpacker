@@ -2,29 +2,27 @@
 
 #include "TextAttributes.hh"
 
-using namespace std;
-
 MidasFileManager::~MidasFileManager() {
   if(fFile.is_open()) {
     fFile.close();
   }
 }
 
-bool MidasFileManager::Open(string fileName) {
+bool MidasFileManager::Open(std::string fileName) {
   fFileName = fileName;
   try {
     fFile.open(fFileName);
     fStartAddress = fFile.data();
     fReadAddress = fStartAddress;
     fSize = fFile.size();
-  } catch(exception& exc) {
+  } catch(std::exception& exc) {
     //file_mapping::remove(fileName.c_str());
-    cerr<<Attribs::Bright<<Foreground::Red<<"Unhandled exception "<<exc.what()<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"Unhandled exception "<<exc.what()<<Attribs::Reset<<std::endl;
     return false;
   }
 
   if(fSettings->VerbosityLevel() > 0) {
-    cerr<<Attribs::Bright<<Foreground::Red<<"Input file size is "<<fSize<<" bytes."<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"Input file size is "<<fSize<<" bytes."<<Attribs::Reset<<std::endl;
   }
   
   return true;
@@ -46,15 +44,15 @@ MidasFileHeader MidasFileManager::ReadHeader() {
 
   //first check that the size is at least 16 bytes (4 * 32bit)
   if(BytesLeft() < 16) {
-    cerr<<Attribs::Bright<<Foreground::Red<<"Not enough bytes left to read the header: "<<BytesLeft()<<" < 16"<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"Not enough bytes left to read the header: "<<BytesLeft()<<" < 16"<<Attribs::Reset<<std::endl;
     exit(-1);
   }
 
   //get the file header and advance the read address
   const uint32_t* fileHeaderWord = reinterpret_cast<const uint32_t*>(fReadAddress);
   if((fileHeaderWord[0] & 0xffff) != 0x8000) {
-    cerr<<Attribs::Bright<<Foreground::Red<<"ERROR! Bad Midas start number (should be 0x8000): 0x"<<hex<<fileHeaderWord[0]<<dec<<" = "<<fileHeaderWord[0]<<endl
-	<<"Read address  = 0x"<<hex<<fReadAddress<<", start address 0x"<<fStartAddress<<dec<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"ERROR! Bad Midas start number (should be 0x8000): 0x"<<std::hex<<fileHeaderWord[0]<<std::dec<<" = "<<fileHeaderWord[0]<<std::endl
+	<<"Read address  = 0x"<<std::hex<<fReadAddress<<", start address 0x"<<fStartAddress<<std::dec<<Attribs::Reset<<std::endl;
     exit(-1);
   }
   fReadAddress += 16;//4 32bit words => 16 bytes
@@ -66,7 +64,7 @@ MidasFileHeader MidasFileManager::ReadHeader() {
 
   //check that at least fileHeaderWord[3] bytes are left
   if(BytesLeft() < fileHeaderWord[3]) {
-    cerr<<Attribs::Bright<<Foreground::Red<<"Not enough bytes left to read the header information: "<<BytesLeft()<<" < "<<fileHeaderWord[3]<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"Not enough bytes left to read the header information: "<<BytesLeft()<<" < "<<fileHeaderWord[3]<<Attribs::Reset<<std::endl;
     exit(-1);
   }
 
@@ -86,13 +84,13 @@ bool MidasFileManager::ReadHeader(MidasEvent& event) {
   //total bank bytes - 4 bytes
   //flags - 4 bytes
   if(BytesLeft() < 24) {
-    cerr<<Attribs::Bright<<Foreground::Red<<"Error reading event header (24 bytes), only "<<BytesLeft()<<" bytes left"<<endl
-	<<"Assuming end of file, file is most likely corrupt"<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"Error reading event header (24 bytes), only "<<BytesLeft()<<" bytes left"<<std::endl
+	<<"Assuming end of file, file is most likely corrupt"<<Attribs::Reset<<std::endl;
     event.EoF();
     fStatus = kEoF;
     return false;
   } else if(fSettings->VerbosityLevel() > 0) {
-    cout<<"reading header (24 bytes), got "<<BytesLeft()<<" bytes left (size = "<<fSize<<", position = "<<Position()<<")"<<endl;
+    std::cout<<"reading header (24 bytes), got "<<BytesLeft()<<" bytes left (size = "<<fSize<<", position = "<<Position()<<")"<<std::endl;
   }
 
   //read the header information
@@ -118,8 +116,8 @@ bool MidasFileManager::ReadHeader(MidasEvent& event) {
   fReadAddress += 4;
 
   if(fSettings->VerbosityLevel() > 2) {
-    cout<<endl
-	<<hex<<"Got event header with type 0x"<<event.fType<<", mask 0x"<<event.fMask<<", time 0x"<<event.fTime<<dec<<", "<<event.fNofBytes<<" bytes, "<<event.fTotalBankBytes<<" total bytes, and flags 0x"<<hex<<event.fFlags<<dec<<endl;
+    std::cout<<std::endl
+	     <<std::hex<<"Got event header with type 0x"<<event.fType<<", mask 0x"<<event.fMask<<", time 0x"<<event.fTime<<std::dec<<", "<<event.fNofBytes<<" bytes, "<<event.fTotalBankBytes<<" total bytes, and flags 0x"<<std::hex<<event.fFlags<<std::dec<<std::endl;
   }
 
   return true;
@@ -145,9 +143,9 @@ bool MidasFileManager::Read(MidasEvent& event) {
   //Double check size of event.
   if((event.fTotalBankBytes + 8) != event.fNofBytes) {
     //error.
-    cerr<<Attribs::Bright<<Foreground::Red<<"The number of event bytes and total bank bytes do not agree in event "<<event.fNumber<<endl
-	<<"There are "<<event.fTotalBankBytes<<" total bank bytes, and "<<event.fNofBytes<<" event bytes."<<endl
-	<<"Looking for next good event."<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"The number of event bytes and total bank bytes do not agree in event "<<event.fNumber<<std::endl
+	     <<"There are "<<event.fTotalBankBytes<<" total bank bytes, and "<<event.fNofBytes<<" event bytes."<<std::endl
+	     <<"Looking for next good event."<<Attribs::Reset<<std::endl;
 
     //Need to go looking for the next good event ...
     while((event.fTotalBankBytes + 8) != event.fNofBytes) {
@@ -155,28 +153,28 @@ bool MidasFileManager::Read(MidasEvent& event) {
       fReadAddress -= 20;
 
       if(!ReadHeader(event)) {
-	cerr<<Attribs::Bright<<Foreground::Red<<"Failed to find good event."<<Attribs::Reset<<endl;
+	std::cerr<<Attribs::Bright<<Foreground::Red<<"Failed to find good event."<<Attribs::Reset<<std::endl;
 	return false;
       }
     }
 
-    cerr<<Attribs::Bright<<Foreground::Green<<"Recovered - found next good event."<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Green<<"Recovered - found next good event."<<Attribs::Reset<<std::endl;
   }
 
   if((event.fFlags != 0x11) && (event.fFlags != 0x1)) {
-    cerr<<Attribs::Bright<<Foreground::Red<<"Bad flags of 0x"<<hex<<event.fFlags<<dec<<" in event "<<event.fNumber<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"Bad flags of 0x"<<std::hex<<event.fFlags<<std::dec<<" in event "<<event.fNumber<<Attribs::Reset<<std::endl;
   }
 
   if(fSettings->VerbosityLevel() > 2) {
-    cout<<"Starting on event "<<event.fNumber<<" with "<<event.fNofBytes<<" bytes and "<<event.fTotalBankBytes<<" bank bytes. Flags are 0x"<<hex<<event.fFlags<<dec<<endl;
+    std::cout<<"Starting on event "<<event.fNumber<<" with "<<event.fNofBytes<<" bytes and "<<event.fTotalBankBytes<<" bank bytes. Flags are 0x"<<std::hex<<event.fFlags<<std::dec<<std::endl;
   }
 
   //Fill the banks.
   while(nofBankBytesRead < event.fTotalBankBytes) {
     try {
       event.fBanks.push_back(Bank(event.fBanks.size()));
-    } catch(exception exc) {
-      cerr<<Attribs::Bright<<Foreground::Red<<"Failed to allocate memory for bank #"<<event.fBanks.size()<<" in event "<<event.fNumber<<": "<<exc.what()<<Attribs::Reset<<endl;
+    } catch(std::exception exc) {
+      std::cerr<<Attribs::Bright<<Foreground::Red<<"Failed to allocate memory for bank #"<<event.fBanks.size()<<" in event "<<event.fNumber<<": "<<exc.what()<<Attribs::Reset<<std::endl;
       exit(1);
     }
 
@@ -187,14 +185,14 @@ bool MidasFileManager::Read(MidasEvent& event) {
     if(bankBytesRead < 1) {
       if(bankBytesRead == -10) {
 	//Unexpected end of file - likely hardware issue.
-	cerr<<Attribs::Bright<<Foreground::Red<<__PRETTY_FUNCTION__<<": unexpected end of file"<<Attribs::Reset<<endl;
+	std::cerr<<Attribs::Bright<<Foreground::Red<<__PRETTY_FUNCTION__<<": unexpected end of file"<<Attribs::Reset<<std::endl;
 	event.EoF();
 	return false;
       }
       //We're likely in an infinite loop.
       //$$$$$Error spectrum.
       //Do something about it!
-      cerr<<Attribs::Bright<<Foreground::Red<<"Error, no bytes read in event "<<event.fNumber<<" for bank "<<event.fBanks.size()<<Attribs::Reset<<endl;
+      std::cerr<<Attribs::Bright<<Foreground::Red<<"Error, no bytes read in event "<<event.fNumber<<" for bank "<<event.fBanks.size()<<Attribs::Reset<<std::endl;
       event.fBanks.pop_back(); //Don't process the rest of the banks.
       return false;
     }
@@ -204,7 +202,7 @@ bool MidasFileManager::Read(MidasEvent& event) {
 
   if(nofBankBytesRead != event.fTotalBankBytes) {
     //Trouble, too many bytes inputted.
-    cerr<<Attribs::Bright<<Foreground::Red<<"Number of bytes in event "<<event.fNumber<<" does not agree with number of bytes in banks."<<Attribs::Reset<<endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"Number of bytes in event "<<event.fNumber<<" does not agree with number of bytes in banks."<<Attribs::Reset<<std::endl;
     return false;
   }
 
@@ -218,14 +216,14 @@ int MidasFileManager::Read(Bank& bank, unsigned int maxBytes, unsigned int flags
   bank.fReadPoint = 0; //Start reading the bank at the first byte.
 
   if(fSettings->VerbosityLevel() > 2) {
-    cout<<"starting to read "<<maxBytes<<" bytes from bank with flags "<<flags<<" (BANK32 = "<<BANK32<<")"<<endl;
+    std::cout<<"starting to read "<<maxBytes<<" bytes from bank with flags "<<flags<<" (BANK32 = "<<BANK32<<")"<<std::endl;
   }
 
   if(flags & BANK32) {
     nofHeaderBytes = 12;
 
     if(maxBytes < nofHeaderBytes) {
-      cerr<<Attribs::Bright<<Foreground::Red<<"Not enough bytes left in event to read bank header."<<Attribs::Reset<<endl;
+      std::cerr<<Attribs::Bright<<Foreground::Red<<"Not enough bytes left in event to read bank header."<<Attribs::Reset<<std::endl;
       return -1;
     }
     if(BytesLeft() < nofHeaderBytes) {
@@ -233,7 +231,7 @@ int MidasFileManager::Read(Bank& bank, unsigned int maxBytes, unsigned int flags
       return -10;
     }
 
-    copy(fReadAddress,fReadAddress+4,bank.fName);
+    std::copy(fReadAddress,fReadAddress+4,bank.fName);
     fReadAddress += 4;
 
     bank.fType = *(reinterpret_cast<const uint32_t*>(fReadAddress));
@@ -243,7 +241,7 @@ int MidasFileManager::Read(Bank& bank, unsigned int maxBytes, unsigned int flags
     fReadAddress += 4;
 
     if(bank.fSize > (maxBytes - nofHeaderBytes)) {
-      cerr<<Attribs::Bright<<Foreground::Red<<"Not enough bytes left in event to read bankbytes."<<Attribs::Reset<<endl;
+      std::cerr<<Attribs::Bright<<Foreground::Red<<"Not enough bytes left in event to read bankbytes."<<Attribs::Reset<<std::endl;
       fReadAddress += maxBytes - nofHeaderBytes;
       return -1;
     }
@@ -251,7 +249,7 @@ int MidasFileManager::Read(Bank& bank, unsigned int maxBytes, unsigned int flags
     nofHeaderBytes = 8;
 
     if(maxBytes < nofHeaderBytes) {
-      cerr<<Attribs::Bright<<Foreground::Red<<"Not enough bytes left in event to read bank header."<<Attribs::Reset<<endl;
+      std::cerr<<Attribs::Bright<<Foreground::Red<<"Not enough bytes left in event to read bank header."<<Attribs::Reset<<std::endl;
       return -1;
     }
     if(BytesLeft() < nofHeaderBytes) {
@@ -259,7 +257,7 @@ int MidasFileManager::Read(Bank& bank, unsigned int maxBytes, unsigned int flags
       return -10;
     }
 
-    copy(fReadAddress,fReadAddress+4,bank.fName);
+    std::copy(fReadAddress,fReadAddress+4,bank.fName);
     fReadAddress += 4;
 
     bank.fType = static_cast<uint32_t>(*(reinterpret_cast<const uint16_t*>(fReadAddress)));
@@ -269,21 +267,21 @@ int MidasFileManager::Read(Bank& bank, unsigned int maxBytes, unsigned int flags
     fReadAddress += 2;
 
     if(bank.fSize > (maxBytes - nofHeaderBytes)) {
-      cerr<<Attribs::Bright<<Foreground::Red<<"Not enough bytes left in event to read bankbytes."<<Attribs::Reset<<endl;
+      std::cerr<<Attribs::Bright<<Foreground::Red<<"Not enough bytes left in event to read bankbytes."<<Attribs::Reset<<std::endl;
       fReadAddress += maxBytes - nofHeaderBytes;
       return -1;
     }
   }
 
   if(fSettings->VerbosityLevel() > 2) {
-    cout<<"will now try to read "<<bank.fSize<<" bytes into bank"<<endl;
+    std::cout<<"will now try to read "<<bank.fSize<<" bytes into bank"<<std::endl;
   }
 
   try {
     //size is in bytes, bank data in uint32_t
     bank.fData.resize(bank.fSize/4);
-  } catch(exception exc) {
-    cerr<<Attribs::Bright<<Foreground::Red<<__PRETTY_FUNCTION__<<": failed to allocated memory"<<Attribs::Reset<<endl;
+  } catch(std::exception exc) {
+    std::cerr<<Attribs::Bright<<Foreground::Red<<__PRETTY_FUNCTION__<<": failed to allocated memory"<<Attribs::Reset<<std::endl;
     exit(1);
   }
 
@@ -292,14 +290,14 @@ int MidasFileManager::Read(Bank& bank, unsigned int maxBytes, unsigned int flags
     return -10;
   }
 
-  copy(reinterpret_cast<const uint32_t*>(fReadAddress),reinterpret_cast<const uint32_t*>(fReadAddress+bank.fSize),bank.fData.begin());
+  std::copy(reinterpret_cast<const uint32_t*>(fReadAddress),reinterpret_cast<const uint32_t*>(fReadAddress+bank.fSize),bank.fData.begin());
   fReadAddress += bank.fSize;
 
   if(bank.fSize%8 != 0) {
     bank.fExtraBytes.resize(8 - bank.fSize%8);
 
     if(bank.fExtraBytes.size() > (maxBytes - nofHeaderBytes - bank.fSize)) {
-      cerr<<Attribs::Bright<<Foreground::Red<<"Not enough bytes left in event to read extra bank bytes"<<Attribs::Reset<<endl;
+      std::cerr<<Attribs::Bright<<Foreground::Red<<"Not enough bytes left in event to read extra bank bytes"<<Attribs::Reset<<std::endl;
       return -1;
     }
   } else {
@@ -312,10 +310,10 @@ int MidasFileManager::Read(Bank& bank, unsigned int maxBytes, unsigned int flags
   }
 
   if(fSettings->VerbosityLevel() > 2) {
-    cout<<"and copy "<<bank.fExtraBytes.size()<<" bytes to extra bytes of bank"<<endl;
+    std::cout<<"and copy "<<bank.fExtraBytes.size()<<" bytes to extra bytes of bank"<<std::endl;
   }
 
-  copy(fReadAddress,fReadAddress+bank.fExtraBytes.size(),bank.fExtraBytes.begin());
+  std::copy(fReadAddress,fReadAddress+bank.fExtraBytes.size(),bank.fExtraBytes.begin());
   fReadAddress += bank.fExtraBytes.size();
     
   return nofHeaderBytes + bank.fSize + bank.fExtraBytes.size();
@@ -339,29 +337,29 @@ int MidasFileManager::SetRunStartTime(int& starttime) {
 //---------------------------------------- Bank
 void Bank::Print(bool hexFormat, bool printBankContents) {
   if(hexFormat) {
-    cout<<hex<<"Bank Number: 0x"<<fNumber<<", Bankname: "<<fName[0]<<fName[1]<<fName[2]<<fName[3]<<", Type: 0x"<<fType<<", Banksize: 0x"<<fData.size()<<", Number of Extra Bytes: 0x"<<fExtraBytes.size()<<endl;
+    std::cout<<std::hex<<"Bank Number: 0x"<<fNumber<<", Bankname: "<<fName[0]<<fName[1]<<fName[2]<<fName[3]<<", Type: 0x"<<fType<<", Banksize: 0x"<<fData.size()<<", Number of Extra Bytes: 0x"<<fExtraBytes.size()<<std::endl;
     
     if(printBankContents) {
       for(size_t i = 0; i < fData.size(); i++) {
 	if(i%8 == 0 && i != 0) {
-	  cout<<endl<<"0x";
+	  std::cout<<std::endl<<"0x";
 	}
-	cout<<fData[i]<<" ";
+	std::cout<<fData[i]<<" ";
       }
-      cout<<endl;
+      std::cout<<std::endl;
     }
-    cout<<dec;
+    std::cout<<std::dec;
   } else {
-    cout<<"Bank Number: "<<fNumber<<", Bankname: "<<fName[0]<<fName[1]<<fName[2]<<fName[3]<<", Type: "<<fType<<", Banksize: "<<fData.size()<<", Number of Extra Bytes: "<<fExtraBytes.size()<<dec<<endl;
+    std::cout<<"Bank Number: "<<fNumber<<", Bankname: "<<fName[0]<<fName[1]<<fName[2]<<fName[3]<<", Type: "<<fType<<", Banksize: "<<fData.size()<<", Number of Extra Bytes: "<<fExtraBytes.size()<<std::dec<<std::endl;
 
     if(printBankContents) {
       for(size_t i = 0; i < fData.size(); i++) {
 	if(i%8 == 0 && i != 0) {
-	  cout<<endl;
+	  std::cout<<std::endl;
 	}
-	cout<<fData[i]<<" ";
+	std::cout<<fData[i]<<" ";
       }
-      cout<<endl;
+      std::cout<<std::endl;
     }
   }
 }
@@ -390,7 +388,7 @@ bool Bank::Get(float& value) {
 bool Bank::Peek(uint16_t& value) {
   //fReadPoint counts the 16bit values, but data contains 32bit values
   if(fReadPoint/2 >= fData.size()) {
-    cerr<<__PRETTY_FUNCTION__<<": end of buffer reached in event "<<fEventNumber<<", bank "<<fNumber<<", location "<<fReadPoint<<", size "<<fData.size()<<"+1 16bit words"<<endl;
+    std::cerr<<__PRETTY_FUNCTION__<<": end of buffer reached in event "<<fEventNumber<<", bank "<<fNumber<<", location "<<fReadPoint<<", size "<<fData.size()<<"+1 16bit words"<<std::endl;
     Print(true, true);
     value = 0;
     return false;
@@ -406,7 +404,7 @@ bool Bank::Peek(uint16_t& value) {
 bool Bank::Peek(uint32_t& value) {
   //fReadPoint counts the 16bit values, but data contains 32bit values
   if(fReadPoint/2 >= fData.size()) {
-    cerr<<__PRETTY_FUNCTION__<<": end of buffer reached in event "<<fEventNumber<<", bank "<<fNumber<<", location "<<fReadPoint<<", size "<<fData.size()<<"+1 16bit words"<<endl;
+    std::cerr<<__PRETTY_FUNCTION__<<": end of buffer reached in event "<<fEventNumber<<", bank "<<fNumber<<", location "<<fReadPoint<<", size "<<fData.size()<<"+1 16bit words"<<std::endl;
     Print(true, true);
     value = 0;
     return false;
@@ -419,7 +417,7 @@ bool Bank::Peek(float& value) {
   assert(sizeof(float) == sizeof(uint32_t));
   //fReadPoint counts the 16bit values, but data contains 32bit values
   if(fReadPoint/2 >= fData.size()) {
-    cerr<<__PRETTY_FUNCTION__<<": end of buffer reached in event "<<fEventNumber<<", bank "<<fNumber<<", location "<<fReadPoint<<", size "<<fData.size()<<"+1 16bit words"<<endl;
+    std::cerr<<__PRETTY_FUNCTION__<<": end of buffer reached in event "<<fEventNumber<<", bank "<<fNumber<<", location "<<fReadPoint<<", size "<<fData.size()<<"+1 16bit words"<<std::endl;
     Print(true, true);
     value = 0;
     return false;
@@ -443,16 +441,16 @@ void MidasEvent::Zero() {
 
 void MidasEvent::Print(bool hexFormat, bool printBanks, bool printBankContents) {
   if(hexFormat) {
-    cout<<hex<<"Eventtype: 0x"<<fType<<", Eventmask: 0x"<<fMask<<", Eventnumber: 0x"<<fNumber<<", Eventtime: 0x"<<fTime<<", Number of Event Bytes: "<<dec<<fNofBytes<<endl
-	<<hex<<"Total Bank Bytes: 0x"<<fTotalBankBytes<<", Flags: 0x"<<fFlags<<", Number of Banks: "<<dec<<fBanks.size()<<endl;
+    std::cout<<std::hex<<"Eventtype: 0x"<<fType<<", Eventmask: 0x"<<fMask<<", Eventnumber: 0x"<<fNumber<<", Eventtime: 0x"<<fTime<<", Number of Event Bytes: "<<std::dec<<fNofBytes<<std::endl
+	<<std::hex<<"Total Bank Bytes: 0x"<<fTotalBankBytes<<", Flags: 0x"<<fFlags<<", Number of Banks: "<<std::dec<<fBanks.size()<<std::endl;
   }  else {
-    cout<<"Eventtype: "<<fType<<", Eventmask: "<<fMask<<", Eventnumber: "<<fNumber<<", Eventtime: "<<fTime<<", Number of Event Bytes: "<<fNofBytes<<endl
-	<<"Total Bank Bytes: "<<fTotalBankBytes<<", Flags: "<<fFlags<<", Number of Banks: "<<fBanks.size()<<endl;
+    std::cout<<"Eventtype: "<<fType<<", Eventmask: "<<fMask<<", Eventnumber: "<<fNumber<<", Eventtime: "<<fTime<<", Number of Event Bytes: "<<fNofBytes<<std::endl
+	<<"Total Bank Bytes: "<<fTotalBankBytes<<", Flags: "<<fFlags<<", Number of Banks: "<<fBanks.size()<<std::endl;
   }
   
   if(printBanks) {
-    for(size_t i = 0; i < fBanks.size(); ++i) {
-      fBanks[i].Print(hex, printBankContents);
+    for(auto& bank : fBanks) {
+      bank.Print(hexFormat, printBankContents);
     }
   }
 }
