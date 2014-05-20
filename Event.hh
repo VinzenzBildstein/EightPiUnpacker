@@ -11,14 +11,21 @@
 
 class Ulm : public TObject {
 public:
-  Ulm(){};
+  Ulm() {
+    fCycleNumber = 0;
+    fTriggerMask = 0;
+    fBeamStatus = 0;
+    fClock = 0;
+    fLiveClock = 0;
+    fMasterCount = 0;
+  }
   ~Ulm(){};
 
   friend bool operator<(const Ulm& lh, const Ulm& rh) {
     return lh.fClock < rh.fClock;
   }
   friend bool operator>(const Ulm& lh, const Ulm& rh) {
-    return lh.fClock < rh.fClock;
+    return lh.fClock > rh.fClock;
   }
 
   void Header(uint16_t header) {
@@ -31,7 +38,10 @@ public:
     }
   }
   void Clock(uint32_t clock) {
-    fClock = clock;
+    fClock = (uint64_t)clock;
+  }
+  void ClockOverflow(uint32_t overflow) {
+    fClock = fClock | ((uint64_t)overflow)<<32;
   }
   void LiveClock(uint32_t liveClock) {
     fLiveClock = liveClock;
@@ -40,22 +50,22 @@ public:
     fMasterCount = masterCount;
   }
 
-  uint16_t CycleNumber() {
+  uint16_t CycleNumber() const {
     return fCycleNumber;
   }
-  uint16_t TriggerMask() {
+  uint16_t TriggerMask() const {
     return fTriggerMask;
   }
-  bool BeamStatus() {
+  bool BeamStatus() const {
     return fBeamStatus;
   }
-  uint32_t Clock() const {
+  uint64_t Clock() const {
     return fClock;
   }
-  uint32_t LiveClock() {
+  uint32_t LiveClock() const {
     return fLiveClock;
   }
-  uint32_t MasterCount() {
+  uint32_t MasterCount() const {
     return fMasterCount;
   }
 
@@ -64,7 +74,7 @@ private:
   uint16_t fCycleNumber;
   uint16_t fTriggerMask;
   bool fBeamStatus;
-  uint32_t fClock;
+  uint64_t fClock;//counts in 100ns steps
   uint32_t fLiveClock;
   uint32_t fMasterCount;
   
@@ -81,7 +91,7 @@ public:
     return lh.fUlm < rh.fUlm;
   }
   friend bool operator>(const Detector& lh, const Detector& rh) {
-    return lh.fUlm < rh.fUlm;
+    return lh.fUlm > rh.fUlm;
   }
 
   void TdcHits(size_t tdcHits) {

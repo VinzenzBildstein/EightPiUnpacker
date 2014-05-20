@@ -14,6 +14,10 @@
 #define ULM_BEAM_STATUS_OFFSET  10 //Offset for ULM_BEAM_STATUS
 #define ULM_TRIGGER_MASK_OFFSET 11 //Offset for ULM_TRIGGER_MASK
 
+//#define ULM_CLOCK_OVERFLOW 0xffffffff
+#define ULM_CLOCK_OVERFLOW 0x1ffffff
+#define ULM_CLOCK_IN_SECONDS 10000000
+
 #define FME_ZERO  0x464d4530 //FME0 in hex.
 #define FME_ONE   0x464d4531 //FME1
 #define FME_TWO   0x464d4532 //FME2
@@ -81,7 +85,7 @@ enum class EDetectorType : uint8_t {
 
 class Settings {
 public:
-  Settings(std::string, int);
+  Settings(std::string, int, bool);
   ~Settings(){};
 
   int VerbosityLevel() {
@@ -99,6 +103,9 @@ public:
 
   bool Active(const EDetectorType& detectorType, const uint16_t& detectorNumber) {
     if(fActiveDetectors.find(static_cast<uint8_t>(detectorType)) == fActiveDetectors.end()) {
+      return false;
+    }
+    if(detectorNumber >= fActiveDetectors[static_cast<uint8_t>(detectorType)].size()) {
       return false;
     }
     return fActiveDetectors[static_cast<uint8_t>(detectorType)][detectorNumber];
@@ -130,6 +137,9 @@ public:
   }
 
   //-------------------- calibration
+  bool NoCalibration() {
+    return fNoCalibration;
+  }
   float Sigma() {
     return fSigma;
   }
@@ -189,6 +199,7 @@ public:
 
 private:
   int fVerbosityLevel;
+  bool fNoCalibration;
 
   std::string fTemperatureFileName;
 

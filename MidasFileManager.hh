@@ -1,8 +1,7 @@
 #ifndef __FILEMANAGER_H
 #define __FILEMANAGER_H
-#include <iostream>
-#include <fstream>
 #include <vector>
+#include <string>
 
 #include <boost/iostreams/device/mapped_file.hpp>
 

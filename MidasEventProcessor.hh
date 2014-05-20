@@ -1,7 +1,8 @@
 #ifndef __MIDAS_EVENT_PROCESSOR_HH
 #define __MIDAS_EVENT_PROCESSOR_HH
 
-#include <thread>
+#include <future>
+#include <mutex>
 #include <fstream>
 #include <set>
 #include <boost/circular_buffer.hpp>
@@ -26,9 +27,12 @@ public:
     return fNofStoredCycles;
   }
 
+  void CorrectOverflow(const EDetectorType&, const uint32_t&, Ulm&);
+ 
 private:
   uint32_t fCycleStartTime;
   uint32_t fNofStoredCycles;
+  std::map<uint32_t,uint32_t> fFirstEventTime;
   std::map<uint32_t,uint32_t> fLastUlmClock;
   std::map<uint32_t,uint32_t> fLastDeadTime;
   std::map<uint32_t,uint32_t> fLastLiveTime;
@@ -37,7 +41,7 @@ private:
 
 class MidasEventProcessor {
 public:
-  MidasEventProcessor(Settings*,TTree*,bool);
+  MidasEventProcessor(Settings*,TFile*,TTree*,bool);
   ~MidasEventProcessor();
   //use default moving constructor and assignment
   MidasEventProcessor(MidasEventProcessor&&) = default;
@@ -54,10 +58,13 @@ public:
 
 private:
   //these member functions will be started as individual threads
-  void Calibrate();
-  void BuildEvents();
-  void FillTree();
-  void StatusUpdate();
+  std::string Calibrate();
+  std::string BuildEvents();
+  std::string FillTree();
+  std::string StatusUpdate();
+
+  std::string Status();
+  std::string ThreadStatus();
 
   //process the different midas event types
   bool FifoEvent(MidasEvent&);
@@ -77,16 +84,20 @@ private:
   bool GetAdc4300(Bank&, uint16_t, uint16_t, std::vector<std::pair<uint16_t, uint16_t> >&);
   bool GetUlm(Bank&, Ulm&);
 
-  void ConstructEvents(const uint32_t&, const uint32_t&, const EDetectorType&, std::vector<std::pair<uint16_t, uint16_t> >&, std::map<uint16_t, std::vector<uint16_t> >&, const Ulm&);
+  void ConstructEvents(const uint32_t&, const uint32_t&, const EDetectorType&, std::vector<std::pair<uint16_t, uint16_t> >&, std::map<uint16_t, std::vector<uint16_t> >&, Ulm&);
 
   enum EProcessStatus {
     kRun,
-    kFlush
+    kFlushUncalibrated,
+    kFlushCalibrated,
+    kFlushBuilt,
+    kDone
   };
 
 private:
   Settings* fSettings;
   Calibration fCalibration;
+  TFile* fRootFile;
   TTree* fTree;
 
   EProcessStatus fStatus;
@@ -109,11 +120,18 @@ private:
 
   //scaler data
   std::vector<std::vector<uint16_t> > fMcs;
+
   //buffers to store detectors/events
   boost::circular_buffer<Detector> fUncalibratedDetector;
-  std::map<uint8_t,std::vector<boost::circular_buffer<Detector> > > fWaiting;
-  std::multiset<Detector> fCalibratedDetector;
+  std::map<uint8_t, std::vector<boost::circular_buffer<Detector> > > fWaiting;
+  std::multiset<Detector, std::less<Detector> > fCalibratedDetector;
   boost::circular_buffer<Event> fBuiltEvents;
+
+  //mutexes for above buffers
+  std::mutex fUncalibratedMutex;
+  std::map<uint8_t, std::mutex> fWaitingMutex;
+  std::mutex fCalibratedMutex;
+  std::mutex fBuiltMutex;
 
   //calibration histograms
   std::vector<std::vector<TH1I*> > fRawEnergyHistograms;
@@ -122,8 +140,9 @@ private:
   uint32_t fLastEventTime;
   std::map<uint32_t,uint32_t> fLastFifoSerial;
   std::map<uint32_t,uint32_t> fNofZeros;
-  //the threads that are being started in the constructor
-  std::vector<std::thread> fThreads;
+  std::map<uint32_t,uint32_t> fNofUnkownFera;
+  //this hold the futures of the threads
+  std::vector<std::pair<uint16_t, std::future<std::string> > > fThreads;
   //clock state
   ClockState fClockState;
 
@@ -134,6 +153,7 @@ private:
 
   //temperature output file
   std::ofstream fTemperatureFile;
+  std::ofstream fDataFile;
 };
 
 #endif

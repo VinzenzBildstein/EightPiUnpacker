@@ -16,7 +16,7 @@
 void exitFunction() {
   //reset the text attributes of std-out and -err
   std::cout<<Attribs::Reset<<std::flush;
-  cerr<<Attribs::Reset<<std::flush;
+  std::cerr<<Attribs::Reset<<std::flush;
 }
 
 int main(int argc, char** argv) {
@@ -29,8 +29,12 @@ int main(int argc, char** argv) {
   interface.Add("-of","root file name (optional, default = replacing extension with .root)",&rootFileName);
   std::string settingsFileName = "Settings.dat";
   interface.Add("-sf","settings file name (optional, default = 'Settings.dat'",&settingsFileName);
+  bool noCalibration = false;
+  interface.Add("-nc","deactivate calibration",&noCalibration);
   bool statusUpdate = false;
   interface.Add("-su","activate status update",&statusUpdate);
+  size_t nofEvents = 0;
+  interface.Add("-ne","maximum number of events to be processed",&nofEvents);
   int verbosityLevel = 0;
   interface.Add("-vl","level of verbosity (optional, default = 0)",&verbosityLevel);
   
@@ -66,7 +70,7 @@ int main(int argc, char** argv) {
     std::cerr<<Attribs::Bright<<Foreground::Red<<"Failed to find midas file '"<<settingsFileName<<"'"<<Attribs::Reset<<std::endl;
     return 1;
   }
-  Settings settings(settingsFileName, verbosityLevel);
+  Settings settings(settingsFileName, verbosityLevel, noCalibration);
 
   //-------------------- open root file and tree --------------------
   TFile rootFile(rootFileName.c_str(),"recreate");
@@ -82,9 +86,9 @@ int main(int argc, char** argv) {
   TStopwatch watch;
   size_t totalEvents = 0;
   size_t oldPosition = 0;
-  MidasFileManager fileManager(midasFileName,&settings);
+  MidasFileManager fileManager(midasFileName, &settings);
   MidasEvent currentEvent;
-  MidasEventProcessor eventProcessor(&settings,&tree,statusUpdate);
+  MidasEventProcessor eventProcessor(&settings, &rootFile, &tree, statusUpdate);
 
   //-------------------- get the file header --------------------
   MidasFileHeader fileHeader = fileManager.ReadHeader();
@@ -108,8 +112,11 @@ int main(int argc, char** argv) {
     }
     totalEvents++;
     if(totalEvents%1000 == 0) {
-      std::cout<<setw(5)<<fixed<<setprecision(1)<<(100.*fileManager.Position())/fileManager.Size()<<"%: read "<<totalEvents<<" events ("<<1000./watch.RealTime()<<" events/s = "<<1000.*(fileManager.Position()-oldPosition)/watch.RealTime()<<" kB/s)\r"<<std::flush;
+      std::cout<<setw(5)<<fixed<<setprecision(1)<<(100.*fileManager.Position())/fileManager.Size()<<"%: read "<<totalEvents<<" events ("<<1000./watch.RealTime()<<" events/s = "<<(fileManager.Position()-oldPosition)/watch.RealTime()/1024<<" kiB/s)\r"<<std::flush;
       watch.Continue();
+    }
+    if(nofEvents > 0 && totalEvents >= nofEvents) {
+      break;
     }
   }
   std::cout<<std::endl;
@@ -123,6 +130,10 @@ int main(int argc, char** argv) {
 
   //-------------------- flush all events to file and close all files --------------------
   eventProcessor.Flush();
+
+  if(verbosityLevel > 0) {
+    eventProcessor.Print();
+  }
 
   fileManager.Close();
   tree.Write();

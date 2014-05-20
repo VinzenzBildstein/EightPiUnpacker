@@ -1,5 +1,9 @@
 #include "MidasFileManager.hh"
 
+#include <iostream>
+#include <iomanip>
+#include <fstream>
+
 #include "TextAttributes.hh"
 
 MidasFileManager::~MidasFileManager() {
@@ -84,8 +88,8 @@ bool MidasFileManager::ReadHeader(MidasEvent& event) {
   //total bank bytes - 4 bytes
   //flags - 4 bytes
   if(BytesLeft() < 24) {
-    std::cerr<<Attribs::Bright<<Foreground::Red<<"Error reading event header (24 bytes), only "<<BytesLeft()<<" bytes left"<<std::endl
-	<<"Assuming end of file, file is most likely corrupt"<<Attribs::Reset<<std::endl;
+    std::cerr<<Attribs::Bright<<Foreground::Red<<"Error reading event header (24 bytes), only "<<BytesLeft()<<" bytes left!"<<std::endl
+	     <<"Assuming end of file!"<<Attribs::Reset<<std::endl;
     event.EoF();
     fStatus = kEoF;
     return false;
@@ -132,7 +136,6 @@ bool MidasFileManager::Read(MidasEvent& event) {
     return false;
   }
 
-  //$$$$Possibly remove:
   if(event.IsEoF()) {
     event.EoF();
     return false;
@@ -337,18 +340,17 @@ int MidasFileManager::SetRunStartTime(int& starttime) {
 //---------------------------------------- Bank
 void Bank::Print(bool hexFormat, bool printBankContents) {
   if(hexFormat) {
-    std::cout<<std::hex<<"Bank Number: 0x"<<fNumber<<", Bankname: "<<fName[0]<<fName[1]<<fName[2]<<fName[3]<<", Type: 0x"<<fType<<", Banksize: 0x"<<fData.size()<<", Number of Extra Bytes: 0x"<<fExtraBytes.size()<<std::endl;
+    std::cout<<std::hex<<"Bank Number: 0x"<<fNumber<<", Bankname: "<<fName[0]<<fName[1]<<fName[2]<<fName[3]<<", Type: 0x"<<fType<<", Banksize: 0x"<<fData.size()<<", Number of Extra Bytes: 0x"<<fExtraBytes.size();
     
     if(printBankContents) {
       for(size_t i = 0; i < fData.size(); i++) {
-	if(i%8 == 0 && i != 0) {
+	if(i%8 == 0) {
 	  std::cout<<std::endl<<"0x";
 	}
-	std::cout<<fData[i]<<" ";
+	std::cout<<std::setw(8)<<std::setfill('0')<<fData[i]<<" ";
       }
-      std::cout<<std::endl;
     }
-    std::cout<<std::dec;
+    std::cout<<std::dec<<std::setfill(' ')<<std::endl;
   } else {
     std::cout<<"Bank Number: "<<fNumber<<", Bankname: "<<fName[0]<<fName[1]<<fName[2]<<fName[3]<<", Type: "<<fType<<", Banksize: "<<fData.size()<<", Number of Extra Bytes: "<<fExtraBytes.size()<<std::dec<<std::endl;
 
@@ -386,10 +388,11 @@ bool Bank::Get(float& value) {
 }
 
 bool Bank::Peek(uint16_t& value) {
+  //std::cout<<"Peeking 16bits at "<<fReadPoint<<std::endl;
   //fReadPoint counts the 16bit values, but data contains 32bit values
   if(fReadPoint/2 >= fData.size()) {
-    std::cerr<<__PRETTY_FUNCTION__<<": end of buffer reached in event "<<fEventNumber<<", bank "<<fNumber<<", location "<<fReadPoint<<", size "<<fData.size()<<"+1 16bit words"<<std::endl;
-    Print(true, true);
+    //std::cerr<<__PRETTY_FUNCTION__<<": end of buffer reached in event "<<fEventNumber<<", bank "<<fNumber<<", location "<<fReadPoint<<", size "<<fData.size()<<"+1 16bit words"<<std::endl;
+    //Print(true, true);
     value = 0;
     return false;
   }
@@ -402,14 +405,23 @@ bool Bank::Peek(uint16_t& value) {
 }
 
 bool Bank::Peek(uint32_t& value) {
+  //std::cout<<"Peeking 32bits at "<<fReadPoint<<std::endl;
   //fReadPoint counts the 16bit values, but data contains 32bit values
-  if(fReadPoint/2 >= fData.size()) {
-    std::cerr<<__PRETTY_FUNCTION__<<": end of buffer reached in event "<<fEventNumber<<", bank "<<fNumber<<", location "<<fReadPoint<<", size "<<fData.size()<<"+1 16bit words"<<std::endl;
-    Print(true, true);
+  if((fReadPoint+1)/2 >= fData.size()) {
+    //std::cerr<<__PRETTY_FUNCTION__<<": end of buffer reached in event "<<fEventNumber<<", bank "<<fNumber<<", location "<<fReadPoint<<", size "<<fData.size()<<"+1 16bit words"<<std::endl;
+    //Print(true, true);
     value = 0;
     return false;
   }
-  value = fData[fReadPoint/2];
+  if(fReadPoint%2 != 0) {
+    //std::cerr<<__PRETTY_FUNCTION__<<": trying to read 32bits after an odd number of 16bit words have been read! Event "<<fEventNumber<<", bank "<<fNumber<<", location "<<fReadPoint<<", size "<<fData.size()<<"+1 16bit words, fData[fReadPoint/2] 0x"<<std::hex<<fData[fReadPoint/2]<<", 0x"<<fData[(fReadPoint+1)/2];
+    //get the low word of fReadPoint/2 and the high word of (fReadPoint+1)/2
+    value = ((fData[fReadPoint/2] & 0xffff) << 16) | ((fData[(fReadPoint+1)/2] & 0xffff0000) >> 16);
+    //std::cerr<<", value 0x"<<value<<std::dec<<std::endl;
+  } else {
+    value = fData[fReadPoint/2];
+  }
+
   return true;
 }
 
@@ -417,8 +429,8 @@ bool Bank::Peek(float& value) {
   assert(sizeof(float) == sizeof(uint32_t));
   //fReadPoint counts the 16bit values, but data contains 32bit values
   if(fReadPoint/2 >= fData.size()) {
-    std::cerr<<__PRETTY_FUNCTION__<<": end of buffer reached in event "<<fEventNumber<<", bank "<<fNumber<<", location "<<fReadPoint<<", size "<<fData.size()<<"+1 16bit words"<<std::endl;
-    Print(true, true);
+    //std::cerr<<__PRETTY_FUNCTION__<<": end of buffer reached in event "<<fEventNumber<<", bank "<<fNumber<<", location "<<fReadPoint<<", size "<<fData.size()<<"+1 16bit words"<<std::endl;
+    //Print(true, true);
     value = 0;
     return false;
   }

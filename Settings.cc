@@ -5,8 +5,9 @@
 
 #include "TEnv.h"
 
-Settings::Settings(std::string settingsFileName, int verbosityLevel) {
+Settings::Settings(std::string settingsFileName, int verbosityLevel, bool noCalibration) {
   fVerbosityLevel = verbosityLevel;
+  fNoCalibration = noCalibration;
 
   TEnv env;
   env.ReadFile(settingsFileName.c_str(),kEnvLocal);
@@ -28,7 +29,7 @@ Settings::Settings(std::string settingsFileName, int verbosityLevel) {
   fMaxBaF2Channel = env.GetValue("BaF2.MaxChannel",16384);
 
   //-------------------- calibration and detector settings
-  fSigma = env.GetValue("Calibration.Sigma",2.);
+  fSigma = float(env.GetValue("Calibration.Sigma",2.));
   fPeakThreshold = env.GetValue("Calibration.PeakThreshold",0.1);
   fNofDevonvIterations = env.GetValue("Calibration.NofDeconvIterations",10000);
   fNofFitIterations = env.GetValue("Calibration.NofFitIterations",1000);
@@ -37,14 +38,19 @@ Settings::Settings(std::string settingsFileName, int verbosityLevel) {
   if(fVerbosityLevel > 0) {
     std::cout<<"Settings are:"<<std::endl
 	     <<"uncalibrated buffer size: \t"<<fUncalibratedBufferSize<<std::endl
-	     <<"built events buffer size: \t"<<fBuiltEventsSize<<std::endl;
+	     <<"built events buffer size: \t"<<fBuiltEventsSize<<std::endl
+	     <<"sigma: \t"<<fSigma<<std::endl
+	     <<"peak threshold: \t"<<fPeakThreshold<<std::endl
+	     <<"# deconv. iter.: \t"<<fNofDevonvIterations<<std::endl
+	     <<"# fit iter.: \t"<<fNofFitIterations<<std::endl
+	     <<"fit convergence coeff.: \t"<<fFitConvergenceCoeff<<std::endl;
   }
 
   //get the number of peaks, their rough location, and their energies for each detector
   //germanium
   detType = static_cast<uint8_t>(EDetectorType::kGermanium);
   fMinimumCounts[detType] = env.GetValue("Calibration.Germanium.MinCounts",10000);
-  fActiveDetectors[detType].resize(fNofGermaniumDetectors);
+  fActiveDetectors[detType].resize(fNofGermaniumDetectors,true);
   fCoarseTdcWindows[detType].resize(fNofGermaniumDetectors);
   fNofPeaks[detType].resize(fNofGermaniumDetectors);
   fRoughWindow[detType].resize(fNofGermaniumDetectors);
@@ -59,13 +65,13 @@ Settings::Settings(std::string settingsFileName, int verbosityLevel) {
     }
   }
   if(fVerbosityLevel > 0) {
-    std::cout<<"Germanium:"<<std::endl
+    std::cout<<uint16_t(detType)<<" = Germanium:"<<std::endl
 	     <<"minimum counts: \t"<<fMinimumCounts[detType]<<std::endl;
   }
   //plastic
   detType = static_cast<uint8_t>(EDetectorType::kPlastic);
   fMinimumCounts[detType] = env.GetValue("Calibration.Plastic.MinCounts",10000);
-  fActiveDetectors[detType].resize(fNofPlasticDetectors);
+  fActiveDetectors[detType].resize(fNofPlasticDetectors,true);
   fCoarseTdcWindows[detType].resize(fNofPlasticDetectors);
   fNofPeaks[detType].resize(fNofPlasticDetectors);
   fRoughWindow[detType].resize(fNofPlasticDetectors);
@@ -80,13 +86,13 @@ Settings::Settings(std::string settingsFileName, int verbosityLevel) {
     }
   }
   if(fVerbosityLevel > 0) {
-    std::cout<<"Plastic:"<<std::endl
+    std::cout<<uint16_t(detType)<<" = Plastic:"<<std::endl
 	     <<"minimum counts: \t"<<fMinimumCounts[detType]<<std::endl;
   }
   //silicon
   detType = static_cast<uint8_t>(EDetectorType::kSilicon);
   fMinimumCounts[detType] = env.GetValue("Calibration.Silicon.MinCounts",10000);
-  fActiveDetectors[detType].resize(fNofSiliconDetectors);
+  fActiveDetectors[detType].resize(fNofSiliconDetectors,true);
   fCoarseTdcWindows[detType].resize(fNofSiliconDetectors);
   fNofPeaks[detType].resize(fNofSiliconDetectors);
   fRoughWindow[detType].resize(fNofSiliconDetectors);
@@ -101,13 +107,13 @@ Settings::Settings(std::string settingsFileName, int verbosityLevel) {
     }
   }
   if(fVerbosityLevel > 0) {
-    std::cout<<"Silicon:"<<std::endl
+    std::cout<<uint16_t(detType)<<" = Silicon:"<<std::endl
 	     <<"minimum counts: \t"<<fMinimumCounts[detType]<<std::endl;
   }
   //BaF2
-  detType = static_cast<uint8_t>(detType);
+  detType = static_cast<uint8_t>(EDetectorType::kBaF2);
   fMinimumCounts[detType] = env.GetValue("Calibration.BaF2.MinCounts",10000);
-  fActiveDetectors[detType].resize(fNofBaF2Detectors);
+  fActiveDetectors[detType].resize(fNofBaF2Detectors,true);
   fCoarseTdcWindows[detType].resize(fNofBaF2Detectors);
   fNofPeaks[detType].resize(fNofBaF2Detectors);
   fRoughWindow[detType].resize(fNofBaF2Detectors);
@@ -122,9 +128,13 @@ Settings::Settings(std::string settingsFileName, int verbosityLevel) {
     }
   }
   if(fVerbosityLevel > 0) {
-    std::cout<<"BaF2:"<<std::endl
+    std::cout<<uint16_t(detType)<<" = BaF2:"<<std::endl
 	     <<"minimum counts: \t"<<fMinimumCounts[detType]<<std::endl;
   }
+
+  //-------------------- event building (times are in 100 ns)
+  fWaitingWindow = env.GetValue("EventBuilding.WaitingWindow",10000000);//=1s
+  fCoincidenceWindow = env.GetValue("EventBuilding.CoincidenceWindow",20);//=2us
 }
 
 //get detector type (as string) based on the bank name
