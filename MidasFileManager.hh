@@ -1,5 +1,6 @@
 #ifndef __FILEMANAGER_H
 #define __FILEMANAGER_H
+#include <iostream>
 #include <vector>
 #include <string>
 
@@ -62,6 +63,9 @@ class MidasFileManager {
     fSettings = settings;
     if(!Open(fileName)) {
       throw;
+    }
+    if(fSettings->VerbosityLevel() > 1) {
+      std::cout<<"Done with creator of MidasFileManager"<<std::endl;
     }
   }
   ~MidasFileManager();

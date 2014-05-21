@@ -22,8 +22,8 @@ INCLUDES        = -I$(COMMON_DIR) -I.
 
 LIBRARIES	= CommandLineInterface Utilities TextAttributes Spectrum pthread boost_iostreams
 
-CC		= /opt/gcc/bin/gcc
-CXX             = /opt/gcc/bin/g++
+CC		= gcc
+CXX             = g++
 CPPFLAGS 	= $(ROOTINC) $(INCLUDES) -fPIC
 CXXFLAGS	= -std=c++11 -pedantic -Wall -Wno-long-long -g -O3
 
@@ -34,7 +34,6 @@ LDLIBS 		= -L$(LIB_DIR) -Wl,-rpath,/opt/gcc/lib64 $(ROOTLIBS) $(addprefix -l,$(L
 LOADLIBES = \
 	MidasFileManager.o \
 	MidasEventProcessor.o \
-	Calibration.o \
 	Event.o \
 	Settings.o \
 	$(NAME)Dictionary.o

@@ -1,6 +1,5 @@
 #include "MidasFileManager.hh"
 
-#include <iostream>
 #include <iomanip>
 #include <fstream>
 

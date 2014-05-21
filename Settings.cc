@@ -5,16 +5,14 @@
 
 #include "TEnv.h"
 
-Settings::Settings(std::string settingsFileName, int verbosityLevel, bool noCalibration) {
+Settings::Settings(std::string settingsFileName, int verbosityLevel) {
   fVerbosityLevel = verbosityLevel;
-  fNoCalibration = noCalibration;
 
   TEnv env;
   env.ReadFile(settingsFileName.c_str(),kEnvLocal);
 
   uint8_t detType;
 
-  fUncalibratedBufferSize = env.GetValue("UncalibratedBufferSize", 1024);
   fBuiltEventsSize = env.GetValue("BuiltEventsSize", 1024);
 
   fTemperatureFileName = env.GetValue("TemperatureFileName","temperature.dat");
@@ -28,108 +26,44 @@ Settings::Settings(std::string settingsFileName, int verbosityLevel, bool noCali
   fNofBaF2Detectors = env.GetValue("BaF2.NofDetectors",10);
   fMaxBaF2Channel = env.GetValue("BaF2.MaxChannel",16384);
 
-  //-------------------- calibration and detector settings
-  fSigma = float(env.GetValue("Calibration.Sigma",2.));
-  fPeakThreshold = env.GetValue("Calibration.PeakThreshold",0.1);
-  fNofDevonvIterations = env.GetValue("Calibration.NofDeconvIterations",10000);
-  fNofFitIterations = env.GetValue("Calibration.NofFitIterations",1000);
-  fFitConvergenceCoeff = env.GetValue("Calibration.FitConvergenceCoeff",0.1);
-
+  //-------------------- detector settings
   if(fVerbosityLevel > 0) {
     std::cout<<"Settings are:"<<std::endl
-	     <<"uncalibrated buffer size: \t"<<fUncalibratedBufferSize<<std::endl
-	     <<"built events buffer size: \t"<<fBuiltEventsSize<<std::endl
-	     <<"sigma: \t"<<fSigma<<std::endl
-	     <<"peak threshold: \t"<<fPeakThreshold<<std::endl
-	     <<"# deconv. iter.: \t"<<fNofDevonvIterations<<std::endl
-	     <<"# fit iter.: \t"<<fNofFitIterations<<std::endl
-	     <<"fit convergence coeff.: \t"<<fFitConvergenceCoeff<<std::endl;
+	     <<"built events buffer size: \t"<<fBuiltEventsSize<<std::endl;
   }
 
   //get the number of peaks, their rough location, and their energies for each detector
   //germanium
   detType = static_cast<uint8_t>(EDetectorType::kGermanium);
-  fMinimumCounts[detType] = env.GetValue("Calibration.Germanium.MinCounts",10000);
   fActiveDetectors[detType].resize(fNofGermaniumDetectors,true);
   fCoarseTdcWindows[detType].resize(fNofGermaniumDetectors);
-  fNofPeaks[detType].resize(fNofGermaniumDetectors);
-  fRoughWindow[detType].resize(fNofGermaniumDetectors);
   for(int i = 0; i < fNofGermaniumDetectors; ++i) {
     fActiveDetectors[detType][i] = env.GetValue(Form("Germanium.%d.Active",i),true);
     fCoarseTdcWindows[detType][i] = std::make_pair(env.GetValue(Form("Germanium.%d.",i),true),env.GetValue(Form("Germanium.%d.Active",i),true));
-    fNofPeaks[detType][i] = env.GetValue(Form("Calibration.Germanium.%d.NofPeaks",i),0);
-    fRoughWindow[detType][i].resize(fNofPeaks[detType][i]);
-    for(int j = 0; j < fNofPeaks[detType][i]; ++j) {
-      fRoughWindow[detType][i][j] = std::make_pair(env.GetValue(Form("Calibration.Germanium.%d.%d.LowerLimit",i,j),0), env.GetValue(Form("Calibration.Germanium.%d.%d.UpperLimit",i,j),0));
-      fEnergy[detType][i][j] = env.GetValue(Form("Calibration.Germanium.%d.%d.Energy",i,j),0.);
-    }
-  }
-  if(fVerbosityLevel > 0) {
-    std::cout<<uint16_t(detType)<<" = Germanium:"<<std::endl
-	     <<"minimum counts: \t"<<fMinimumCounts[detType]<<std::endl;
   }
   //plastic
   detType = static_cast<uint8_t>(EDetectorType::kPlastic);
-  fMinimumCounts[detType] = env.GetValue("Calibration.Plastic.MinCounts",10000);
   fActiveDetectors[detType].resize(fNofPlasticDetectors,true);
   fCoarseTdcWindows[detType].resize(fNofPlasticDetectors);
-  fNofPeaks[detType].resize(fNofPlasticDetectors);
-  fRoughWindow[detType].resize(fNofPlasticDetectors);
   for(int i = 0; i < fNofPlasticDetectors; ++i) {
     fActiveDetectors[detType][i] = env.GetValue(Form("Plastic.%d.Active",i),true);
     fCoarseTdcWindows[detType][i] = std::make_pair(env.GetValue(Form("Plastic.%d.",i),true),env.GetValue(Form("Plastic.%d.Active",i),true));
-    fNofPeaks[detType][i] = env.GetValue(Form("Calibration.Plastic.%d.NofPeaks",i),0);
-    fRoughWindow[detType][i].resize(fNofPeaks[detType][i]);
-    for(int j = 0; j < fNofPeaks[detType][i]; ++j) {
-      fRoughWindow[detType][i][j] = std::make_pair(env.GetValue(Form("Calibration.Plastic.%d.%d.LowerLimit",i,j),0), env.GetValue(Form("Calibration.Plastic.%d.%d.UpperLimit",i,j),0));
-      fEnergy[detType][i][j] = env.GetValue(Form("Calibration.Plastic.%d.%d.Energy",i,j),0.);
-    }
-  }
-  if(fVerbosityLevel > 0) {
-    std::cout<<uint16_t(detType)<<" = Plastic:"<<std::endl
-	     <<"minimum counts: \t"<<fMinimumCounts[detType]<<std::endl;
   }
   //silicon
   detType = static_cast<uint8_t>(EDetectorType::kSilicon);
-  fMinimumCounts[detType] = env.GetValue("Calibration.Silicon.MinCounts",10000);
   fActiveDetectors[detType].resize(fNofSiliconDetectors,true);
   fCoarseTdcWindows[detType].resize(fNofSiliconDetectors);
-  fNofPeaks[detType].resize(fNofSiliconDetectors);
-  fRoughWindow[detType].resize(fNofSiliconDetectors);
   for(int i = 0; i < fNofSiliconDetectors; ++i) {
     fActiveDetectors[detType][i] = env.GetValue(Form("Silicon.%d.Active",i),true);
     fCoarseTdcWindows[detType][i] = std::make_pair(env.GetValue(Form("Silicon.%d.",i),true),env.GetValue(Form("Silicon.%d.Active",i),true));
-    fNofPeaks[detType][i] = env.GetValue(Form("Calibration.Silicon.%d.NofPeaks",i),0);
-    fRoughWindow[detType][i].resize(fNofPeaks[detType][i]);
-    for(int j = 0; j < fNofPeaks[detType][i]; ++j) {
-      fRoughWindow[detType][i][j] = std::make_pair(env.GetValue(Form("Calibration.Silicon.%d.%d.LowerLimit",i,j),0), env.GetValue(Form("Calibration.Silicon.%d.%d.UpperLimit",i,j),0));
-      fEnergy[detType][i][j] = env.GetValue(Form("Calibration.Silicon.%d.%d.Energy",i,j),0.);
-    }
-  }
-  if(fVerbosityLevel > 0) {
-    std::cout<<uint16_t(detType)<<" = Silicon:"<<std::endl
-	     <<"minimum counts: \t"<<fMinimumCounts[detType]<<std::endl;
   }
   //BaF2
   detType = static_cast<uint8_t>(EDetectorType::kBaF2);
-  fMinimumCounts[detType] = env.GetValue("Calibration.BaF2.MinCounts",10000);
   fActiveDetectors[detType].resize(fNofBaF2Detectors,true);
   fCoarseTdcWindows[detType].resize(fNofBaF2Detectors);
-  fNofPeaks[detType].resize(fNofBaF2Detectors);
-  fRoughWindow[detType].resize(fNofBaF2Detectors);
   for(int i = 0; i < fNofBaF2Detectors; ++i) {
     fActiveDetectors[detType][i] = env.GetValue(Form("BaF2.%d.Active",i),true);
     fCoarseTdcWindows[detType][i] = std::make_pair(env.GetValue(Form("BaF2.%d.",i),true),env.GetValue(Form("BaF2.%d.Active",i),true));
-    fNofPeaks[detType][i] = env.GetValue(Form("Calibration.BaF2.%d.NofPeaks",i),0);
-    fRoughWindow[detType][i].resize(fNofPeaks[detType][i]);
-    for(int j = 0; j < fNofPeaks[detType][i]; ++j) {
-      fRoughWindow[detType][i][j] = std::make_pair(env.GetValue(Form("Calibration.BaF2.%d.%d.LowerLimit",i,j),0), env.GetValue(Form("Calibration.BaF2.%d.%d.UpperLimit",i,j),0));
-      fEnergy[detType][i][j] = env.GetValue(Form("Calibration.BaF2.%d.%d.Energy",i,j),0.);
-    }
-  }
-  if(fVerbosityLevel > 0) {
-    std::cout<<uint16_t(detType)<<" = BaF2:"<<std::endl
-	     <<"minimum counts: \t"<<fMinimumCounts[detType]<<std::endl;
   }
 
   //-------------------- event building (times are in 100 ns)

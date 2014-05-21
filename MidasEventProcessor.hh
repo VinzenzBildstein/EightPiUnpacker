@@ -58,7 +58,6 @@ public:
 
 private:
   //these member functions will be started as individual threads
-  std::string Calibrate();
   std::string BuildEvents();
   std::string FillTree();
   std::string StatusUpdate();
@@ -88,15 +87,13 @@ private:
 
   enum EProcessStatus {
     kRun,
-    kFlushUncalibrated,
-    kFlushCalibrated,
+    kFlushRead,
     kFlushBuilt,
     kDone
   };
 
 private:
   Settings* fSettings;
-  Calibration fCalibration;
   TFile* fRootFile;
   TTree* fTree;
 
@@ -113,24 +110,18 @@ private:
   std::map<uint16_t, uint32_t> fSubAddress;
   //keep track of dropped detectors (marked as inactive)
   std::map<uint8_t, std::map<uint16_t, uint32_t> > fDroppedDetector;
-  size_t fNofUncalibratedDetectors;
-  size_t fNofWaiting;
-  size_t fNofCalibratedDetectors;
+  size_t fNofReadDetectors;
   size_t fNofBuiltEvents;
 
   //scaler data
   std::vector<std::vector<uint16_t> > fMcs;
 
   //buffers to store detectors/events
-  boost::circular_buffer<Detector> fUncalibratedDetector;
-  std::map<uint8_t, std::vector<boost::circular_buffer<Detector> > > fWaiting;
-  std::multiset<Detector, std::less<Detector> > fCalibratedDetector;
+  std::multiset<Detector, std::less<Detector> > fReadDetector;
   boost::circular_buffer<Event> fBuiltEvents;
 
   //mutexes for above buffers
-  std::mutex fUncalibratedMutex;
-  std::map<uint8_t, std::mutex> fWaitingMutex;
-  std::mutex fCalibratedMutex;
+  std::mutex fReadMutex;
   std::mutex fBuiltMutex;
 
   //calibration histograms

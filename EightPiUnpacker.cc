@@ -29,8 +29,6 @@ int main(int argc, char** argv) {
   interface.Add("-of","root file name (optional, default = replacing extension with .root)",&rootFileName);
   std::string settingsFileName = "Settings.dat";
   interface.Add("-sf","settings file name (optional, default = 'Settings.dat'",&settingsFileName);
-  bool noCalibration = false;
-  interface.Add("-nc","deactivate calibration",&noCalibration);
   bool statusUpdate = false;
   interface.Add("-su","activate status update",&statusUpdate);
   size_t nofEvents = 0;
@@ -70,7 +68,7 @@ int main(int argc, char** argv) {
     std::cerr<<Attribs::Bright<<Foreground::Red<<"Failed to find midas file '"<<settingsFileName<<"'"<<Attribs::Reset<<std::endl;
     return 1;
   }
-  Settings settings(settingsFileName, verbosityLevel, noCalibration);
+  Settings settings(settingsFileName, verbosityLevel);
 
   //-------------------- open root file and tree --------------------
   TFile rootFile(rootFileName.c_str(),"recreate");

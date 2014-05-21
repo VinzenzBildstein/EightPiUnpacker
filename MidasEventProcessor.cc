@@ -21,7 +21,6 @@ MidasEventProcessor::MidasEventProcessor(Settings* settings, TFile* file, TTree*
   fRootFile = file;
   fTree = tree;
   fStatus = kRun;
-  fCalibration.SetSettings(settings);
 
   //attach leaf to tree
   int BufferSize = 1024000;
@@ -35,15 +34,13 @@ MidasEventProcessor::MidasEventProcessor(Settings* settings, TFile* file, TTree*
   fLastCycle = 0;
   fEventsInCycle = 0;
 
-  fNofUncalibratedDetectors = 0;
-  fNofWaiting = 0;
-  fNofCalibratedDetectors = 0;
+  fNofReadDetectors = 0;
   fNofBuiltEvents = 0;
 
   fTemperatureFile.open(fSettings->TemperatureFile());
 
-  //set size of circular buffer for uncalibrated detectors
-  fUncalibratedDetector.set_capacity(fSettings->UncalibratedBufferSize());
+  //set size of circular buffer for read detectors
+  //fReadDetector.set_capacity(fSettings->ReadBufferSize());
 
   //set size of circular buffer for built events
   fBuiltEvents.set_capacity(fSettings->BuiltEventsSize());
@@ -53,12 +50,7 @@ MidasEventProcessor::MidasEventProcessor(Settings* settings, TFile* file, TTree*
 
   //create energy calibration histograms (4 detector type: ge, pl, si, and baf2)
   fRawEnergyHistograms.resize(4);
-  //create buffer for detectors awaiting calibration (map of vectors of circular buffers)
-  //we set the size of the circular buffer to be 10% larger than the maximum number of events we require to calibrate (to give some room if the event building is slow)
-
   detType = static_cast<uint8_t>(EDetectorType::kGermanium);
-  fWaiting[detType].resize(fSettings->NofGermaniumDetectors(),boost::circular_buffer<Detector>(1.1*fSettings->MinimumCounts(detType)));
-  fWaitingMutex[detType];
   fRawEnergyHistograms[detType].resize(fSettings->NofGermaniumDetectors());
   for(int det = 0; det < fSettings->NofGermaniumDetectors(); ++det) {
     //fWaitingMutex[detType].emplace_back(std::mutex());
@@ -67,8 +59,6 @@ MidasEventProcessor::MidasEventProcessor(Settings* settings, TFile* file, TTree*
   }
 
   detType = static_cast<uint8_t>(EDetectorType::kPlastic);
-  fWaiting[detType].resize(fSettings->NofPlasticDetectors(),boost::circular_buffer<Detector>(1.1*fSettings->MinimumCounts(detType)));
-  fWaitingMutex[detType];
   fRawEnergyHistograms[detType].resize(fSettings->NofPlasticDetectors());
   for(int det = 0; det < fSettings->NofPlasticDetectors(); ++det) {
     //fWaitingMutex[detType].emplace_back(std::mutex());
@@ -77,8 +67,6 @@ MidasEventProcessor::MidasEventProcessor(Settings* settings, TFile* file, TTree*
   }
 
   detType = static_cast<uint8_t>(EDetectorType::kSilicon);
-  fWaiting[detType].resize(fSettings->NofSiliconDetectors(),boost::circular_buffer<Detector>(1.1*fSettings->MinimumCounts(detType)));
-  fWaitingMutex[detType];
   fRawEnergyHistograms[detType].resize(fSettings->NofSiliconDetectors());
   for(int det = 0; det < fSettings->NofSiliconDetectors(); ++det) {
     //fWaitingMutex[detType].emplace_back(std::mutex());
@@ -87,8 +75,6 @@ MidasEventProcessor::MidasEventProcessor(Settings* settings, TFile* file, TTree*
   }
 
   detType = static_cast<uint8_t>(EDetectorType::kBaF2);
-  fWaiting[detType].resize(fSettings->NofBaF2Detectors(),boost::circular_buffer<Detector>(1.1*fSettings->MinimumCounts(detType)));
-  fWaitingMutex[detType];
   fRawEnergyHistograms[detType].resize(fSettings->NofBaF2Detectors());
   for(int det = 0; det < fSettings->NofBaF2Detectors(); ++det) {
     //fWaitingMutex[detType].emplace_back(std::mutex());
@@ -105,14 +91,16 @@ MidasEventProcessor::MidasEventProcessor(Settings* settings, TFile* file, TTree*
   //is this done best with async and yield, or should I use threads and promises, or maybe condition variables
   //seems that ayncs lets some threads "disappear", i.e. they're not scheduled anymore
 
-  //start calibration thread (takes events from the input buffer, calibrates them and puts them into the calibrated buffer)
-  fThreads.push_back(std::make_pair(0,std::async(std::launch::async, &MidasEventProcessor::Calibrate, this)));
-  //start event building thread (takes events from calibrated buffer and combines them into build events in the output buffer)
-  fThreads.push_back(std::make_pair(1,std::async(std::launch::async, &MidasEventProcessor::BuildEvents, this)));
+  //start event building thread (takes events from input buffer and combines them into build events in the output buffer)
+  fThreads.push_back(std::make_pair(0,std::async(std::launch::async, &MidasEventProcessor::BuildEvents, this)));
   //start output thread (writes event in the output buffer to file/tree)
-  fThreads.push_back(std::make_pair(2,std::async(std::launch::async, &MidasEventProcessor::FillTree, this)));
+  fThreads.push_back(std::make_pair(1,std::async(std::launch::async, &MidasEventProcessor::FillTree, this)));
   if(statusUpdate) {
-    fThreads.push_back(std::make_pair(3,std::async(std::launch::async, &MidasEventProcessor::StatusUpdate, this)));
+    fThreads.push_back(std::make_pair(2,std::async(std::launch::async, &MidasEventProcessor::StatusUpdate, this)));
+  }
+
+  if(fSettings->VerbosityLevel() > 1) {
+    std::cout<<"Done with creator of MidasEventProcessor"<<std::endl;
   }
 }
 
@@ -128,7 +116,7 @@ bool MidasEventProcessor::Process(MidasEvent& event) {
   //if this is the first time we encounter this type, it will automatically be inserted
   fNofMidasEvents[event.Type()]++;
   //choose the different methods based on the event type
-  //events added to the input buffer are automatically being calibrated, combined, and written to file via the threads started in the constructor
+  //events added to the input buffer are automatically combined, and written to file via the threads started in the constructor
   if(fSettings->VerbosityLevel() > 2) {
     std::cout<<Show("Processing midas event ",event.Number()," of type 0x",std::hex,event.Type(),std::dec)<<std::endl;
   }
@@ -1001,31 +989,6 @@ void MidasEventProcessor::ConstructEvents(const uint32_t& eventTime, const uint3
 
   //now loop over all detectors, create the event, fill the detector number and energy, find the corresponding times, and fill them too
   for(auto& en : energy) {
-    //check whether the circular buffer is full
-    //if it is and we can't increase it's capacity, we try once(!) to wait for it to empty
-    bool slept = false;
-    while(fUncalibratedDetector.full() && !slept) {
-      try {
-	if(fSettings->VerbosityLevel() > 0) {
-	  std::cout<<Show("Trying to increase uncalibrated detector buffer capacity of ",fUncalibratedDetector.capacity()," by ",fSettings->UncalibratedBufferSize())<<std::endl;
-	}
-	if(fUncalibratedMutex.try_lock()) {
-	  std::cout<<Show(Background::Red(),"ConstructEvents acquired uncalibrated mutex 1",Attribs::Reset())<<std::endl;
-	  fUncalibratedDetector.set_capacity(fUncalibratedDetector.capacity() + fSettings->UncalibratedBufferSize());
-	  fUncalibratedMutex.unlock();
-	} else {
-	  std::cout<<Show(Background::Red(),"ConstructEvents: Uncalibrated mutex is locked, waiting for it",Attribs::Reset())<<std::endl;
-	  fUncalibratedMutex.lock();
-	  fUncalibratedDetector.set_capacity(fUncalibratedDetector.capacity() + fSettings->UncalibratedBufferSize());
-	  fUncalibratedMutex.unlock();
-	}
-	std::cout<<Show(Background::Green(),"ConstructEvents released uncalibrated mutex 1",Attribs::Reset())<<std::endl;
-      } catch(std::exception& exc) {
-	std::cerr<<Show(Attribs::Bright(),Foreground::Red(),"Failed to increase capacity (",fUncalibratedDetector.capacity(),") of uncalibrated detector buffer by ",fSettings->UncalibratedBufferSize(),Attribs::Reset())<<std::endl;
-	slept = true;
-	std::this_thread::sleep_for(std::chrono::milliseconds(STANDARD_WAIT_TIME));
-      }
-    }
     if(ulm.Clock() == 0) {
       std::cout<<Show(Foreground::Red(),"Detector (type ",static_cast<uint16_t>(detectorType),", number ",en.first,") with ulm clock 0!",Attribs::Reset())<<std::endl;
     } else if(fSettings->VerbosityLevel() > 3) {
@@ -1059,18 +1022,30 @@ void MidasEventProcessor::ConstructEvents(const uint32_t& eventTime, const uint3
 	std::cerr<<Show(Foreground::Red(),"Found no tdc hits for detector type ",std::hex,static_cast<uint16_t>(detectorType),std::dec,", number ",en.first,Attribs::Reset())<<std::endl;
       }
     }
-    std::cout<<Show(Background::Blue(),"ConstructEvents acquiring uncalibrated mutex 2",Attribs::Reset())<<std::endl;
-    fUncalibratedMutex.lock();
-    std::cout<<Show(Background::Red(),"ConstructEvents acquired uncalibrated mutex 2",Attribs::Reset())<<std::endl;
-    fUncalibratedDetector.push_back(tmpDetector);
-    fUncalibratedMutex.unlock();
-    std::cout<<Show(Background::Green(),"ConstructEvents released uncalibrated mutex 2",Attribs::Reset())<<std::endl;
+    std::cout<<Show(Background::Blue(),"ConstructEvents acquiring read mutex 2",Attribs::Reset())<<std::endl;
+    while(!fReadMutex.try_lock()) {
+      std::cout<<Show(Attribs::Bright(),Background::Blue(),Foreground::Yellow(),ThreadStatus(),Attribs::Reset())<<std::endl;
+      std::this_thread::sleep_for(std::chrono::milliseconds(STANDARD_WAIT_TIME));
+      std::this_thread::yield();
+    }
+    std::cout<<Show(Background::Red(),"ConstructEvents acquired read mutex 2",Attribs::Reset())<<std::endl;
+    //try to insert the new element, if this fails, we release the lock and wait, hoping that the buffer gets emptied by buildevents()
+    try {
+      fReadDetector.insert(tmpDetector);
+    } catch(std::exception& exc) {
+      std::cerr<<Show(Attribs::Bright(),Foreground::Red(),"Failed to insert detector into read buffer of size ",fReadDetector.size(),"!",Attribs::Reset())<<std::endl;
+      std::this_thread::sleep_for(std::chrono::milliseconds(STANDARD_WAIT_TIME));
+      fReadMutex.lock();
+      fReadDetector.insert(tmpDetector);
+    }
+    fReadMutex.unlock();
+    std::cout<<Show(Background::Green(),"ConstructEvents released read mutex 2",Attribs::Reset())<<std::endl;
   }//for detector
 
-  fNofUncalibratedDetectors += nofEvents;
+  fNofReadDetectors += nofEvents;
 
   if(fSettings->VerbosityLevel() > 3) {
-    std::cout<<Show("done with creation of ",nofEvents," events (",fUncalibratedDetector.size()," uncalibrated detectors in queue, ",fNofUncalibratedDetectors," in total)")<<std::endl;
+    std::cout<<Show("done with creation of ",nofEvents," events (",fReadDetector.size()," read detectors in queue, ",fNofReadDetectors," in total)")<<std::endl;
   }
 }
 
@@ -1078,7 +1053,7 @@ void MidasEventProcessor::ConstructEvents(const uint32_t& eventTime, const uint3
 
 void MidasEventProcessor::Flush() {
   //set status to flush (this triggers the flushing)
-  fStatus = kFlushUncalibrated;
+  fStatus = kFlushRead;
   //join all threads, i.e. wait for them to finish flushing
   for(auto& thread : fThreads) {
     //wait for the thread to be ready
@@ -1158,176 +1133,14 @@ void MidasEventProcessor::Print() {
   }
 }
 
-//start calibration thread (takes events from the input buffers, calibrates them and puts them into the calibrated buffer)
-std::string MidasEventProcessor::Calibrate() {
-  TStopwatch watch;
-  Detector detector;
-  TF1* calibration;
-  TH1I* histogram;
-  
-  //we keep running until all detectors are calibrated and we're not running anymore
-  //this ensures that we don't stop when the read queue drops down to zero while reading more events
-  while(fStatus != kFlushUncalibrated || fUncalibratedDetector.size() > 0) {
-    //if there are no uncalibrated events we wait a little bit (and continue to make sure we weren't told to flush in the mean time)
-    if(fUncalibratedDetector.empty()) {
-      if(fStatus != kRun) {
-	std::cout<<Show(Attribs::Bright(),Foreground::Blue(),ThreadStatus(),Attribs::Reset())<<std::endl;
-      }
-      //std::this_thread::sleep_for(std::chrono::milliseconds(STANDARD_WAIT_TIME));
-      std::this_thread::yield();
-      continue;
-    }
-    //we only use the first uncalibrated detector, as we're running in parallel to a thread that adds elements to the std::vector
-    //to minimize the time we have to lock the queue, we get the first element from it and then delete it
-    if(fSettings->VerbosityLevel() > 3) {
-      std::cout<<Show("Got ",fUncalibratedDetector.size()," uncalibrated detectors to calibrate! Done ",fNofCalibratedDetectors)<<std::endl;
-    }
-    //std::cout<<"Got "<<fUncalibratedDetector.size()<<" uncalibrated detectors to calibrate! Done "<<fNofCalibratedDetectors<<std::endl;
-    std::cout<<Show(Background::Blue(),"Calibrate acquiring uncalibrated mutex 1",Attribs::Reset())<<std::endl;
-    fUncalibratedMutex.lock();
-    std::cout<<Show(Background::Red(),"Calibrate acquired uncalibrated mutex 1",Attribs::Reset())<<std::endl;
-    detector = fUncalibratedDetector.front();
-    fUncalibratedDetector.pop_front();
-    fUncalibratedMutex.unlock();
-    std::cout<<Show(Background::Green(),"Calibrate released uncalibrated mutex 1",Attribs::Reset())<<std::endl;
-    //add the energy to the histogram
-    histogram = fRawEnergyHistograms[detector.DetectorType()][detector.DetectorNumber()];
-    if(histogram == nullptr) {
-      std::cerr<<Show("Failed to get histogram for detector type ",uint16_t(detector.DetectorType()),", number ",detector.DetectorNumber())<<std::endl;
-      throw;
-    }
-    histogram->Fill(detector.RawEnergy());
-
-    //if we don't calibrate we just set the energy to the raw energy and continue
-    if(fSettings->NoCalibration()) {
-      detector.Energy(detector.RawEnergy());
-      //add detector to calibrated queue
-      std::cout<<Show(Background::Blue(),"Calibrate trying to acquire calibrated mutex 1",Attribs::Reset())<<std::endl;
-      fCalibratedMutex.lock();
-      std::cout<<Show(Background::Red(),"Calibrate acquired calibrated mutex 1",Attribs::Reset())<<std::endl;
-      fCalibratedDetector.insert(detector);
-      fCalibratedMutex.unlock();
-      std::cout<<Show(Background::Green(),"Calibrate released calibrated mutex 1",Attribs::Reset())<<std::endl;
-      ++fNofCalibratedDetectors;
-      continue;
-    }
-
-    //add the detector to the queue
-    //check whether the circular buffer is full
-    //if it is and we can't increase it's capacity, we try once(!) to wait for it to empty
-    bool slept = false;
-    while(fWaiting[detector.DetectorType()][detector.DetectorNumber()].full() && !slept) {
-      try {
-	if(fSettings->VerbosityLevel() > 0) {
-	  std::cout<<Show("Trying to increase waiting buffer (",uint16_t(detector.DetectorType()),", ",detector.DetectorNumber(),") capacity of ",fWaiting[detector.DetectorType()][detector.DetectorNumber()].capacity()," by ",fSettings->MinimumCounts(detector.DetectorType()))<<std::endl;
-	}
-	fWaitingMutex[detector.DetectorType()].lock();
-	fWaiting[detector.DetectorType()][detector.DetectorNumber()].set_capacity(fWaiting[detector.DetectorType()][detector.DetectorNumber()].capacity() + fSettings->MinimumCounts(detector.DetectorType()));
-	fWaitingMutex[detector.DetectorType()].unlock();
-      } catch(std::exception& exc) {
-	std::cerr<<Show(Attribs::Bright(),Foreground::Red(),"Failed to increase capacity (",fWaiting[detector.DetectorType()][detector.DetectorNumber()].capacity(),") of waiting buffer ",detector.DetectorType(),", ",detector.DetectorNumber()," by ",fSettings->MinimumCounts(detector.DetectorType()),Attribs::Reset())<<std::endl;
-	slept = true;
-	std::this_thread::sleep_for(std::chrono::milliseconds(STANDARD_WAIT_TIME));
-      }
-    }
-    fWaitingMutex[detector.DetectorType()].lock();
-    fWaiting[detector.DetectorType()][detector.DetectorNumber()].push_back(detector);
-    fWaitingMutex[detector.DetectorType()].unlock();
-    ++fNofWaiting;
-    //check whether we have enough events in histogram to start calibrating
-    if(histogram->Integral() > fSettings->MinimumCounts(detector.DetectorType())) {
-      TGraph peaks = fCalibration.Calibrate(detector.DetectorType(),detector.DetectorNumber(),histogram);
-      //if calibration fails???
-      if(peaks.GetN() == 0) {
-	std::cerr<<Show(Attribs::Bright(),Foreground::Red(),"Calibration of histogram '",histogram->GetName(),"' failed!",Attribs::Reset())<<std::endl;
-	continue;
-      }
-      calibration = (TF1*) peaks.GetListOfFunctions()->FindObject("Calibration");
-      if(calibration == nullptr) {
-	std::cerr<<Show(Attribs::Bright(),Foreground::Red(),"Found no calibration for histogram '",histogram->GetName(),"'!",Attribs::Reset())<<std::endl;
-	continue;
-      }
-      //we're done calibrating so we can remove the first detector of the same type and number from the spectrum and queue
-      fWaitingMutex[detector.DetectorType()].lock();
-      detector = fWaiting[detector.DetectorType()][detector.DetectorNumber()].front();
-      histogram->Fill(detector.RawEnergy(),-1);
-      fWaiting[detector.DetectorType()][detector.DetectorNumber()].pop_front();
-      fWaitingMutex[detector.DetectorType()].unlock();
-      //add calibrated energy to detector
-      detector.Energy(calibration->Eval(detector.RawEnergy()));
-      //add detector to calibrated queue
-      std::cout<<Show(Background::Blue(),"Calibrate acquiring calibrated mutex 2",Attribs::Reset())<<std::endl;
-      fCalibratedMutex.lock();
-      std::cout<<Show(Background::Red(),"Calibrate acquired calibrated mutex 2",Attribs::Reset())<<std::endl;
-      fCalibratedDetector.insert(detector);
-      fCalibratedMutex.unlock();
-      std::cout<<Show(Background::Green(),"Calibrate released calibrated mutex 2",Attribs::Reset())<<std::endl;
-      ++fNofCalibratedDetectors;
-    }//if enough events
-  }//while loop
-
-  //end of the while loop, we're not running anymore and there are no more events in the uncalibrated queue
-  //now we want to use the last calibration we have to calibrate all remaining waiting detectors
-  //so we loop over all detector types in the waiting map and for each detector type over all detectors
-  //we get the right histogram, and use it's calibration, if there is no calibration we force the creation of one
-  for(auto& detType : fWaiting) {//detType is a pair of detector type and a vector of circular buffers
-    //for each detector type we need to loop over all detectors
-    size_t i = 0;
-    for(auto& det : detType.second) {//det is a circular buffer
-      //get the right histogram
-      histogram = fRawEnergyHistograms[detType.first][i];
-      while(det.size() > 0) {
-	TGraph peaks = fCalibration.Calibrate(detType.first,i,histogram);
-	//if calibration fails???
-	if(peaks.GetN() == 0) {
-	  std::cerr<<Show(Attribs::Bright(),Foreground::Red(),"Calibration of histogram '",histogram->GetName(),"' failed!",Attribs::Reset())<<std::endl;
-	  calibration = nullptr;
-	} else {
-	  calibration = (TF1*) peaks.GetListOfFunctions()->FindObject("Calibration");
-	  if(calibration == nullptr) {
-	    std::cerr<<Show(Attribs::Bright(),Foreground::Red(),"Found no calibration for histogram '",histogram->GetName(),"'!",Attribs::Reset())<<std::endl;
-	  }
-	}
-	//we're done calibrating so we can remove the first detector of the same type and number from the spectrum and queue
-	fWaitingMutex[detType.first].lock();
-	detector = fWaiting[detType.first][i].front();
-	histogram->Fill(detector.RawEnergy(),-1);
-	fWaiting[detType.first][i].pop_front();
-	fWaitingMutex[detType.first].unlock();
-	//add calibrated energy to detector
-	if(calibration != nullptr) {
-	  detector.Energy(calibration->Eval(detector.RawEnergy()));
-	} else {
-	  detector.Energy(detector.RawEnergy());
-	}
-	//add detector to calibrated queue
-	std::cout<<Show(Background::Blue(),"Calibrate acquiring calibrated mutex 3",Attribs::Reset())<<std::endl;
-	fCalibratedMutex.lock();
-	std::cout<<Show(Background::Red(),"Calibrate acquired calibrated mutex 3",Attribs::Reset())<<std::endl;
-	fCalibratedDetector.insert(detector);
-	fCalibratedMutex.unlock();
-	std::cout<<Show(Background::Green(),"Calibrate released calibrated mutex 3",Attribs::Reset())<<std::endl;
-	++fNofCalibratedDetectors;
-	++i;
-      }
-    }
-  }
-
-  fStatus = kFlushCalibrated;
-
-  std::stringstream result;
-  result<<"Calibrate finished with status "<<fStatus<<", fUncalibratedDetector.size() = "<<fUncalibratedDetector.size()<<" after "<<watch.RealTime()<<"/"<<watch.CpuTime()<<" seconds (real time/cpu time)"<<std::endl;
-  return result.str();
-}
-
-//start event building thread (takes events from calibrated buffer and combines them into build events in the output buffer)
+//start event building thread (takes events from read buffer and combines them into build events in the output buffer)
 std::string MidasEventProcessor::BuildEvents() {
   TStopwatch watch;
   std::vector<Detector> detectors;
 
-  while(fStatus != kFlushCalibrated || fCalibratedDetector.size() > 0) {
-    //if there are no calibrated events we wait a little bit (and continue to make sure we weren't told to flush in the mean time)
-    if(fCalibratedDetector.empty()) {
+  while(fStatus != kFlushRead || fReadDetector.size() > 0) {
+    //if there are no read events we wait a little bit (and continue to make sure we weren't told to flush in the mean time)
+    if(fReadDetector.empty()) {
       if(fStatus != kRun) {
 	std::cout<<Show(Attribs::Bright(),Foreground::Green(),ThreadStatus(),Attribs::Reset())<<std::endl;
       }
@@ -1336,53 +1149,58 @@ std::string MidasEventProcessor::BuildEvents() {
       continue;
     }
     if(fSettings->VerbosityLevel() > 3) {
-      std::cout<<Show("Got ",fCalibratedDetector.size()," calibrated detectors to build event! Done ",fNofBuiltEvents)<<std::endl;
+      std::cout<<Show("Got ",fReadDetector.size()," read detectors to build event! Done ",fNofBuiltEvents)<<std::endl;
     }
-    //std::cout<<"Got "<<fCalibratedDetector.size()<<" calibrated detectors to calibrate! Done "<<fNofBuiltEvents<<std::endl;
-    //fCalibratedDetector is a multiset, i.e. ordered values which can have the same value
+    //fReadDetector is a multiset, i.e. ordered values which can have the same value
     //so we first want to check whether the time difference between begin and end is within the waiting window (unless we're flushing)
-    std::cout<<Show(Background::Blue(),"BuiltEvents acquiring calibrated mutex 1",Attribs::Reset())<<std::endl;
-    fCalibratedMutex.lock();
-    std::cout<<Show(Background::Red(),"BuiltEvents acquired calibrated mutex 1",Attribs::Reset())<<std::endl;
-    if(fStatus != kFlushCalibrated && fSettings->InWaitingWindow(fCalibratedDetector.begin()->GetUlm().Clock(), std::prev(fCalibratedDetector.end())->GetUlm().Clock())) {
-      //std::cout<<"Not flushing (fStatus = "<<fStatus<<"), "<<fCalibratedDetector.size()<<" events between "<<fCalibratedDetector.begin()->GetUlm().Clock()<<" and "<<std::prev(fCalibratedDetector.end())->GetUlm().Clock()<<std::endl;
-      fCalibratedMutex.unlock();
-      std::cout<<Show(Background::Green(),"BuiltEvents released calibrated mutex 1",Attribs::Reset())<<std::endl;
+    std::cout<<Show(Background::Blue(),"BuiltEvents acquiring read mutex 1",Attribs::Reset())<<std::endl;
+    fReadMutex.lock();
+    std::cout<<Show(Background::Red(),"BuiltEvents acquired read mutex 1",Attribs::Reset())<<std::endl;
+    if(fStatus != kFlushRead && fSettings->InWaitingWindow(fReadDetector.begin()->GetUlm().Clock(), std::prev(fReadDetector.end())->GetUlm().Clock())) {
+      //std::cout<<"Not flushing (fStatus = "<<fStatus<<"), "<<fReadDetector.size()<<" events between "<<fReadDetector.begin()->GetUlm().Clock()<<" and "<<std::prev(fReadDetector.end())->GetUlm().Clock()<<std::endl;
+      fReadMutex.unlock();
+      std::cout<<Show(Background::Green(),"BuiltEvents released read mutex 1",Attribs::Reset())<<std::endl;
       continue;
     }
-    fCalibratedMutex.unlock();
-    std::cout<<Show(Background::Green(),"BuiltEvents released calibrated mutex 1",Attribs::Reset())<<std::endl;
+    fReadMutex.unlock();
+    std::cout<<Show(Background::Green(),"BuiltEvents released read mutex 1",Attribs::Reset())<<std::endl;
 
     size_t nofRemoved = 0;
 
     //our oldest time is outside the waiting window, so we take that detector out of the list
     detectors.clear();
-    std::cout<<Show(Background::Blue(),"BuiltEvents trying to acquire calibrated mutex 2",Attribs::Reset())<<std::endl;
-    fCalibratedMutex.lock();
-    std::cout<<Show(Background::Red(),"BuiltEvents acquired calibrated mutex 2",Attribs::Reset())<<std::endl;
-    detectors.push_back(*(fCalibratedDetector.begin()));
-    fCalibratedDetector.erase(fCalibratedDetector.begin());
+    std::cout<<Show(Background::Blue(),"BuiltEvents trying to acquire read mutex 2",Attribs::Reset())<<std::endl;
+    fReadMutex.lock();
+    std::cout<<Show(Background::Red(),"BuiltEvents acquired read mutex 2",Attribs::Reset())<<std::endl;
+    detectors.push_back(*(fReadDetector.begin()));
+    fReadDetector.erase(fReadDetector.begin());
     ++nofRemoved;
     //now we want to find all that are in coincidence with that detector
-    for(auto iterator = fCalibratedDetector.begin(); iterator != fCalibratedDetector.end(); ++iterator) {
-      //std::cout<<Show(Background::Yellow<<"Working on detector "<<std::distance(fCalibratedDetector.begin(),iterator)<<" of "<<fCalibratedDetector.size()<<Attribs::Reset())<<std::endl;
-      std::cout<<Show(Background::Yellow(),"Working on detector ",std::distance(fCalibratedDetector.begin(),iterator)," of ",fCalibratedDetector.size(),Attribs::Reset())<<std::endl;
+    for(auto iterator = fReadDetector.begin(); iterator != fReadDetector.end(); ++iterator) {
+      std::cout<<Show(Background::Yellow(),"Working on detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
       if(fSettings->Coincidence(detectors[0].GetUlm().Clock(), iterator->GetUlm().Clock())) {
+	std::cout<<Show(Background::Yellow(),"Coincident detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
 	detectors.push_back(*iterator);
+	std::cout<<Show(Background::Yellow(),"Added detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
 	//if this detector is also outside the waiting window or has the same time as the current detector (if we're flushing) we remove it as well
-	if(!fSettings->InWaitingWindow(iterator->GetUlm().Clock(), std::prev(fCalibratedDetector.end())->GetUlm().Clock()) || iterator->GetUlm().Clock() == detectors[0].GetUlm().Clock()) {
-	  fCalibratedDetector.erase(iterator);
+	if(!fSettings->InWaitingWindow(iterator->GetUlm().Clock(), std::prev(fReadDetector.end())->GetUlm().Clock()) || iterator->GetUlm().Clock() == detectors[0].GetUlm().Clock()) {
+	  std::cout<<Show(Background::Yellow(),"Removing detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
+	  fReadDetector.erase(iterator);
 	  ++nofRemoved;
+	  std::cout<<Show(Background::Yellow(),"Removed detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
+	} else {
+	  std::cout<<Show(Background::Yellow(),"Did not remove detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
 	}
       } else {
 	//the set is ordered, so if this detector is outside the coincidence window all followings will be outside as well
+	std::cout<<Show(Background::Yellow(),"Break on detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
 	break;
       }
-      std::cout<<Show(Background::Yellow(),"Done with detector ",std::distance(fCalibratedDetector.begin(),iterator)," of ",fCalibratedDetector.size(),Attribs::Reset())<<std::endl;
+      std::cout<<Show(Background::Yellow(),"Done with detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
     }
     std::cout<<Show(Background::Yellow(),"Done with all detectors",Attribs::Reset())<<std::endl;
-    fCalibratedMutex.unlock();
-    std::cout<<Show(Background::Green(),"BuiltEvents released calibrated mutex 2",Attribs::Reset())<<std::endl;
+    fReadMutex.unlock();
+    std::cout<<Show(Background::Green(),"BuiltEvents released read mutex 2",Attribs::Reset())<<std::endl;
 
     //check whether the circular buffer is full
     //if it is and we can't increase it's capacity, we try once(!) to wait for it to empty
@@ -1419,7 +1237,7 @@ std::string MidasEventProcessor::BuildEvents() {
   fStatus = kFlushBuilt;
 
   std::stringstream result;
-  result<<"BuildEvents finished with status "<<fStatus<<", fCalibratedDetector.size() = "<<fCalibratedDetector.size()<<" after "<<watch.RealTime()<<"/"<<watch.CpuTime()<<" seconds (real time/cpu time)"<<std::endl;
+  result<<"BuildEvents finished with status "<<fStatus<<", fReadDetector.size() = "<<fReadDetector.size()<<" after "<<watch.RealTime()<<"/"<<watch.CpuTime()<<" seconds (real time/cpu time)"<<std::endl;
   return result.str();
 }
 
@@ -1428,7 +1246,7 @@ std::string MidasEventProcessor::FillTree() {
   TStopwatch watch;
 
   while(fStatus != kFlushBuilt || fBuiltEvents.size() > 0) {
-    //if there are no uncalibrated events we wait a little bit (and continue to make sure we weren't told to flush in the mean time)
+    //if there are no built events we wait a little bit (and continue to make sure we weren't told to flush in the mean time)
     if(fBuiltEvents.empty()) {
       if(fStatus != kRun) {
 	std::cout<<Show(Attribs::Bright(),Foreground::Yellow(),ThreadStatus(),Attribs::Reset())<<std::endl;
@@ -1464,7 +1282,8 @@ std::string MidasEventProcessor::StatusUpdate() {
   TStopwatch watch;
 
   while(fStatus == kRun) {
-    std::cout<<Status()<<std::endl;
+    std::cout<<Status()<<std::endl
+	     <<ThreadStatus()<<std::endl;
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
 
@@ -1476,31 +1295,10 @@ std::string MidasEventProcessor::StatusUpdate() {
 std::string MidasEventProcessor::Status() {
   std::stringstream result;
 
-  size_t waitingGermanium = 0;
-  size_t waitingPlastic = 0;
-  size_t waitingSilicon = 0;
-  size_t waitingBaF2 = 0;
-  size_t waitingSum;
-
-  for(const auto& det : fWaiting[static_cast<uint8_t>(EDetectorType::kGermanium)]) {
-    waitingGermanium += det.size();
-  }
-  for(const auto& det : fWaiting[static_cast<uint8_t>(EDetectorType::kPlastic)]) {
-    waitingPlastic += det.size();
-  }
-  for(const auto& det : fWaiting[static_cast<uint8_t>(EDetectorType::kSilicon)]) {
-    waitingSilicon += det.size();
-  }
-  for(const auto& det : fWaiting[static_cast<uint8_t>(EDetectorType::kBaF2)]) {
-    waitingBaF2 += det.size();
-  }
-  waitingSum = waitingGermanium + waitingPlastic + waitingSilicon + waitingBaF2;
   if(fStatus == kRun) {
     result<<"running: ";
-  } else if(fStatus == kFlushUncalibrated) {
-    result<<"flushing uncalibrated: ";
-  } else if(fStatus == kFlushCalibrated) {
-    result<<"flushing calibrated: ";
+  } else if(fStatus == kFlushRead) {
+    result<<"flushing read: ";
   } else if(fStatus == kFlushBuilt) {
     result<<"flushing built: ";
   } else if(fStatus == kDone) {
@@ -1508,9 +1306,7 @@ std::string MidasEventProcessor::Status() {
   } else {
     result<<"unknown status: ";
   }
-  result<<fUncalibratedDetector.size()<<"/"<<fNofUncalibratedDetectors<<" uncalibrated detectors, "
-	<<waitingSum<<"/"<<fNofWaiting<<" waiting detectors ("<<waitingGermanium<<" Ge, "<<waitingPlastic<<" Pl, "<<waitingSilicon<<" Si, "<<waitingBaF2<<" BaF2) , "
-	<<fCalibratedDetector.size()<<"/"<<fNofCalibratedDetectors<<" calibrated detectors, "
+  result<<fReadDetector.size()<<"/"<<fNofReadDetectors<<" read detectors, "
 	<<fBuiltEvents.size()<<"/"<<fNofBuiltEvents<<" built events, "
 	<<fTree->GetEntries()<<" entries in tree";
 
@@ -1537,39 +1333,10 @@ std::string MidasEventProcessor::ThreadStatus() {
   }
   result<<fThreads.size()<<" threads: "<<nofValid<<" valid, "<<nofReady<<" ready, "<<nofTimeout<<" timed out; active mutexes: ";
 
-  if(fUncalibratedMutex.try_lock()) {
-    fUncalibratedMutex.unlock();
+  if(fReadMutex.try_lock()) {
+    fReadMutex.unlock();
   } else {
-    result<<"uncalibrated mutex, ";
-  }
-  uint8_t detType = static_cast<uint8_t>(EDetectorType::kGermanium);
-  if(fWaitingMutex[detType].try_lock()) {
-    fWaitingMutex[detType].unlock();
-  } else {
-    result<<"germanium mutex, ";
-  }
-  detType = static_cast<uint8_t>(EDetectorType::kPlastic);
-  if(fWaitingMutex[detType].try_lock()) {
-    fWaitingMutex[detType].unlock();
-  } else {
-    result<<"plastic mutex, ";
-  }
-  detType = static_cast<uint8_t>(EDetectorType::kSilicon);
-  if(fWaitingMutex[detType].try_lock()) {
-    fWaitingMutex[detType].unlock();
-  } else {
-    result<<"silicon mutex, ";
-  }
-  detType = static_cast<uint8_t>(EDetectorType::kBaF2);
-  if(fWaitingMutex[detType].try_lock()) {
-    fWaitingMutex[detType].unlock();
-  } else {
-    result<<"baf2 mutex, ";
-  }
-  if(fCalibratedMutex.try_lock()) {
-    fCalibratedMutex.unlock();
-  } else {
-    result<<"calibrated mutex, ";
+    result<<"read mutex, ";
   }
   if(fBuiltMutex.try_lock()) {
     fBuiltMutex.unlock();
