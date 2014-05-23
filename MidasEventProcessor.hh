@@ -57,13 +57,12 @@ public:
   void Print();
 
 private:
-  //these member functions will be started as individual threads
-  std::string BuildEvents();
-  std::string FillTree();
+  void BuildEvents(); 
+  void FillTree();
+ //these member functions will be started as individual threads
   std::string StatusUpdate();
 
   std::string Status();
-  std::string ThreadStatus();
 
   //process the different midas event types
   bool FifoEvent(MidasEvent&);
@@ -119,10 +118,6 @@ private:
   //buffers to store detectors/events
   std::multiset<Detector, std::less<Detector> > fReadDetector;
   boost::circular_buffer<Event> fBuiltEvents;
-
-  //mutexes for above buffers
-  std::mutex fReadMutex;
-  std::mutex fBuiltMutex;
 
   //calibration histograms
   std::vector<std::vector<TH1I*> > fRawEnergyHistograms;

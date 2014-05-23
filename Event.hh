@@ -1,6 +1,7 @@
 #ifndef __EVENT_HH
 #define __EVENT_HH
 
+#include <string>
 #include <vector>
 #include <stdint.h>
 //#include <inttypes.h>
@@ -105,36 +106,38 @@ public:
     fEnergy = energy;
   }
   
-  uint32_t EventTime() {
+  uint32_t EventTime() const {
     return fEventTime;
   }
-  uint32_t EventNumber() {
+  uint32_t EventNumber() const {
     return fEventNumber;
   }
-  uint8_t DetectorType() {
+  uint8_t DetectorType() const {
     return fDetectorType;
   }
-  uint16_t DetectorNumber() {
+  uint16_t DetectorNumber() const {
     return fDetectorNumber;
   }
-  uint16_t RawEnergy() {
+  uint16_t RawEnergy() const {
     return fRawEnergy;
   }
-  float Energy() {
+  float Energy() const {
     return fEnergy;
   }
-  uint16_t Time() {
+  uint16_t Time() const {
     return fTime;
   }
-  size_t TdcHits() {
+  size_t TdcHits() const {
     return fTdcHits;
   }
-  size_t TdcHitsInWindow() {
+  size_t TdcHitsInWindow() const {
     return fTdcHitsInWindow;
   }
   const Ulm& GetUlm() const {
     return fUlm;
   }
+
+  std::string Print() const;
 
 private:
   uint32_t fEventTime;
