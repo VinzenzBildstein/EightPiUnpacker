@@ -1176,7 +1176,8 @@ std::string MidasEventProcessor::BuildEvents() {
     fReadDetector.erase(fReadDetector.begin());
     ++nofRemoved;
     //now we want to find all that are in coincidence with that detector
-    for(auto iterator = fReadDetector.begin(); iterator != fReadDetector.end(); ++iterator) {
+    auto iterator = fReadDetector.begin(); 
+    while(iterator != fReadDetector.end()) {
       std::cout<<Show(Background::Yellow(),"Working on detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
       if(fSettings->Coincidence(detectors[0].GetUlm().Clock(), iterator->GetUlm().Clock())) {
 	std::cout<<Show(Background::Yellow(),"Coincident detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
@@ -1185,11 +1186,13 @@ std::string MidasEventProcessor::BuildEvents() {
 	//if this detector is also outside the waiting window or has the same time as the current detector (if we're flushing) we remove it as well
 	if(!fSettings->InWaitingWindow(iterator->GetUlm().Clock(), std::prev(fReadDetector.end())->GetUlm().Clock()) || iterator->GetUlm().Clock() == detectors[0].GetUlm().Clock()) {
 	  std::cout<<Show(Background::Yellow(),"Removing detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
-	  fReadDetector.erase(iterator);
+	  auto tmp = iterator++;//post-increment, i.e. we copy the original iterator, THEN increment the iterator, and finally erase the copy of the original iterator
+	  fReadDetector.erase(tmp);
 	  ++nofRemoved;
 	  std::cout<<Show(Background::Yellow(),"Removed detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
 	} else {
 	  std::cout<<Show(Background::Yellow(),"Did not remove detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
+	  ++iterator;
 	}
       } else {
 	//the set is ordered, so if this detector is outside the coincidence window all followings will be outside as well
