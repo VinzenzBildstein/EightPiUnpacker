@@ -41,7 +41,7 @@ private:
 
 class MidasEventProcessor {
 public:
-  MidasEventProcessor(Settings*,TFile*,TTree*,bool);
+  MidasEventProcessor(Settings*,TFile*,TTree*,std::string,bool);
   ~MidasEventProcessor();
   //use default moving constructor and assignment
   MidasEventProcessor(MidasEventProcessor&&) = default;
@@ -60,6 +60,7 @@ private:
   //these member functions will be started as individual threads
   std::string BuildEvents();
   std::string FillTree();
+  std::string BufferStatus(std::string);
   std::string StatusUpdate();
 
   std::string Status();
@@ -112,7 +113,7 @@ private:
   std::map<uint8_t, std::map<uint16_t, uint32_t> > fDroppedDetector;
   size_t fNofReadDetectors;
   size_t fNofBuiltEvents;
-
+  std::map<size_t,size_t> fDetectorsPerEvent;
   //scaler data
   std::vector<std::vector<uint16_t> > fMcs;
 
@@ -126,6 +127,8 @@ private:
 
   //calibration histograms
   std::vector<std::vector<TH1I*> > fRawEnergyHistograms;
+  std::vector<std::vector<TH1I*> > fTimingHistograms;
+  std::vector<TH1I*> fMultiplicityHistograms;
   //variables to keep track of last event
   uint32_t fLastEventNumber;
   uint32_t fLastEventTime;
@@ -142,9 +145,10 @@ private:
   uint16_t fLastCycle;
   size_t fEventsInCycle;
 
-  //temperature output file
+  //temperature output file and other files
   std::ofstream fTemperatureFile;
   std::ofstream fDataFile;
+  std::ofstream fBufferStatisticsFile;
 };
 
 #endif

@@ -142,7 +142,11 @@ public:
   }
 
   bool Coincidence(const uint32_t& firstTime, const uint32_t& secondTime) {
-    return int(secondTime - firstTime) < fCoincidenceWindow;
+    if(secondTime >= firstTime) {
+      return int(secondTime - firstTime) < fCoincidenceWindow;
+    }
+    std::cout<<"second time "<<secondTime<<" not larger than first time "<<firstTime<<"!"<<std::endl;
+    return false;
   }
 
   //-------------------- misc
