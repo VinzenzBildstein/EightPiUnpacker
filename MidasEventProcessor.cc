@@ -8,7 +8,7 @@
 #include "TDirectory.h"
 #include "TF1.h"
 #include "TList.h"
-#include "TStopwatch.h"
+//#include "TStopwatch.h"
 
 #include "Utilities.hh"
 #include "TextAttributes.hh"
@@ -16,7 +16,7 @@
 #include "MidasFileManager.hh"
 
 //make MidasEventProcessor a singleton???
-MidasEventProcessor::MidasEventProcessor(Settings* settings, TFile* file, TTree* tree, bool statusUpdate) {  
+MidasEventProcessor::MidasEventProcessor(Settings* settings, TFile* file, TTree* tree, std::string statisticsFile, bool statusUpdate) {  
   fSettings = settings;
   fRootFile = file;
   fTree = tree;
@@ -82,6 +82,19 @@ MidasEventProcessor::MidasEventProcessor(Settings* settings, TFile* file, TTree*
     fDataFile.open("Data.dat");
   }
 
+
+  //-------------------- the threads
+  //is this done best with async and yield, or should I use threads and promises, or maybe condition variables
+  //seems that ayncs lets some threads "disappear", i.e. they're not scheduled anymore
+
+  //start event building thread (takes events from input buffer and combines them into build events in the output buffer)
+  fThreads.push_back(std::make_pair(0,std::async(std::launch::async, &MidasEventProcessor::BuildEvents, this)));
+  //start output thread (writes event in the output buffer to file/tree)
+  fThreads.push_back(std::make_pair(1,std::async(std::launch::async, &MidasEventProcessor::FillTree, this)));
+  fThreads.push_back(std::make_pair(2,std::async(std::launch::async, &MidasEventProcessor::BufferStatus, this, statisticsFile)));
+  if(statusUpdate) {
+    fThreads.push_back(std::make_pair(3,std::async(std::launch::async, &MidasEventProcessor::StatusUpdate, this)));
+  }
 
   if(fSettings->VerbosityLevel() > 1) {
     std::cout<<"Done with creator of MidasEventProcessor"<<std::endl;
@@ -1015,7 +1028,24 @@ void MidasEventProcessor::ConstructEvents(const uint32_t& eventTime, const uint3
 	std::cerr<<Show(Foreground::Red(),"Found no tdc hits for detector type ",std::hex,static_cast<uint16_t>(detectorType),std::dec,", number ",en.first,Attribs::Reset())<<std::endl;
       }
     }
-    fReadDetector.insert(tmpDetector);
+    //std::cout<<Show(Background::Blue(),"ConstructEvents acquiring read mutex 2",Attribs::Reset())<<std::endl;
+    fReadMutex.lock();
+    //std::cout<<Show(Background::Red(),"ConstructEvents acquired read mutex 2",Attribs::Reset())<<std::endl;
+    //try to insert the new element, if this fails, we release the lock and wait, hoping that the buffer gets emptied by buildevents()
+    try {
+      fReadDetector.insert(tmpDetector);
+    } catch(std::exception& exc) {
+      std::cerr<<Show(Attribs::Bright(),Foreground::Red(),"Failed to insert detector into read buffer of size ",fReadDetector.size(),"!",Attribs::Reset())<<std::endl;
+      std::this_thread::sleep_for(std::chrono::milliseconds(STANDARD_WAIT_TIME));
+      fReadMutex.lock();
+      fReadDetector.insert(tmpDetector);
+    }
+    fReadMutex.unlock();
+    //std::cout<<Show(Background::Green(),"ConstructEvents released read mutex 2",Attribs::Reset())<<std::endl;
+    //fill histogram
+    if(static_cast<uint8_t>(detectorType) < fRawEnergyHistograms.size() && en.first < fRawEnergyHistograms[static_cast<uint8_t>(detectorType)].size()) {
+      fRawEnergyHistograms[static_cast<uint8_t>(detectorType)][en.first]->Fill(en.second);
+    }
   }//for detector
 
   fNofReadDetectors += nofEvents;
@@ -1030,8 +1060,25 @@ void MidasEventProcessor::ConstructEvents(const uint32_t& eventTime, const uint3
 void MidasEventProcessor::Flush() {
   //set status to flush (this triggers the flushing)
   fStatus = kFlushRead;
-  BuildEvents();
-  FillTree();
+  //join all threads, i.e. wait for them to finish flushing
+  for(auto& thread : fThreads) {
+    //wait for the thread to be ready
+    if(thread.second.valid()) {
+      size_t nofWaits = 0;
+      while(thread.second.wait_for(std::chrono::milliseconds(STANDARD_WAIT_TIME))==std::future_status::timeout) {
+	if(nofWaits%10 == 0) {
+	  std::cout<<Attribs::Bright<<Foreground::Cyan<<Show("Waiting for thread ",thread.first," to finish: ",Status(),Attribs::Reset())<<std::endl;
+	}
+	++nofWaits;
+      }
+      std::cout<<Attribs::Bright<<Foreground::Cyan<<Show("Waited ",nofWaits*STANDARD_WAIT_TIME," ms for thread ",thread.first," to finish: ",Status(),Attribs::Reset())<<std::endl;
+    } else {
+      std::cout<<Show(Attribs::Bright(),Foreground::Blue(),"Thread ",thread.first," not valid",Attribs::Reset())<<std::endl;
+      continue;
+    }
+    //check return status
+    std::cout<<Show(Attribs::Bright(),Foreground::Blue(),thread.second.get(),Attribs::Reset())<<std::endl;
+  }
 
   //write histograms to file
   for(auto& detType : fRawEnergyHistograms) {
@@ -1040,7 +1087,9 @@ void MidasEventProcessor::Flush() {
 	std::cout<<Show(Attribs::Bright(),Foreground::Red(),"Got empty histogram, skipping it",Attribs::Reset())<<std::endl;
 	continue;
       }
-      std::cout<<Show("Writing histogram ",std::hex,histogram,std::dec," = '",histogram->GetName(),"' to file '",fRootFile->GetName(),"'")<<std::endl;
+      if(fSettings->VerbosityLevel() > 0) {
+	std::cout<<Show("Writing histogram ",std::hex,histogram,std::dec," = '",histogram->GetName(),"' to file '",fRootFile->GetName(),"'")<<std::endl;
+      }
       fRootFile->cd();
       histogram->Write("", TObject::kOverwrite);
     }
@@ -1091,11 +1140,19 @@ void MidasEventProcessor::Print() {
       std::cout<<Show("Unknown event type 0x",std::hex,it.first,std::dec,": ",std::setw(7),it.second)<<std::endl;
     }
   }
+
+  size_t totalBuiltDetectors = 0;
+  for(auto multiplicity : fDetectorsPerEvent) {
+    std::cout<<multiplicity.second<<" built events with "<<multiplicity.first<<" detectors"<<std::endl;
+    totalBuiltDetectors += multiplicity.first*multiplicity.second;
+  }
+  std::cout<<fNofBuiltEvents<<" built events with a total of "<<totalBuiltDetectors<<" detectors out of "<<fNofReadDetectors<<" read detectors"<<std::endl;
 }
 
 //start event building thread (takes events from read buffer and combines them into build events in the output buffer)
-void MidasEventProcessor::BuildEvents() {
-  TStopwatch watch;
+std::string MidasEventProcessor::BuildEvents() {
+  //TStopwatch watch;
+  auto start = std::chrono::high_resolution_clock::now();
   std::vector<Detector> detectors;
 
   if(fReadDetector.size() > 0) {
@@ -1104,49 +1161,56 @@ void MidasEventProcessor::BuildEvents() {
     }
     //fReadDetector is a multiset, i.e. ordered values which can have the same value
     //so we first want to check whether the time difference between begin and end is within the waiting window (unless we're flushing)
+    //std::cout<<Show(Background::Blue(),"BuiltEvents acquiring read mutex 1",Attribs::Reset())<<std::endl;
+    fReadMutex.lock();
+    //std::cout<<Show(Background::Red(),"BuiltEvents acquired read mutex 1",Attribs::Reset())<<std::endl;
     if(fStatus != kFlushRead && fSettings->InWaitingWindow(fReadDetector.begin()->GetUlm().Clock(), std::prev(fReadDetector.end())->GetUlm().Clock())) {
-      return;
+      //std::cout<<"Not flushing (fStatus = "<<fStatus<<"), "<<fReadDetector.size()<<" events between "<<fReadDetector.begin()->GetUlm().Clock()<<" and "<<std::prev(fReadDetector.end())->GetUlm().Clock()<<std::endl;
+      fReadMutex.unlock();
+      //std::cout<<Show(Background::Green(),"BuiltEvents released read mutex 1",Attribs::Reset())<<std::endl;
+      continue;
     }
+    fReadMutex.unlock();
+    //std::cout<<Show(Background::Green(),"BuiltEvents released read mutex 1",Attribs::Reset())<<std::endl;
 
     size_t nofRemoved = 0;
 
     //our oldest time is outside the waiting window, so we take that detector out of the list
-    detectors.clear();
+    //std::cout<<Show(Background::Blue(),"BuiltEvents trying to acquire read mutex 2",Attribs::Reset())<<std::endl;
+    fReadMutex.lock();
+    //std::cout<<Show(Background::Red(),"BuiltEvents acquired read mutex 2",Attribs::Reset())<<std::endl;
     detectors.push_back(*(fReadDetector.begin()));
     fReadDetector.erase(fReadDetector.begin());
     ++nofRemoved;
     //now we want to find all that are in coincidence with that detector
-    auto iterator = fReadDetector.begin();
+    auto iterator = fReadDetector.begin(); 
     while(iterator != fReadDetector.end()) {
-      std::cout<<Show(Background::Yellow(),"Working on detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
+      //std::cout<<Show(Background::Yellow(),"Working on detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
       if(fSettings->Coincidence(detectors[0].GetUlm().Clock(), iterator->GetUlm().Clock())) {
-	std::cout<<Show(Background::Yellow(),"Coincident detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
-	//detectors.push_back(*iterator);
-	std::cout<<Show(Background::Yellow(),"Added detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
+	//std::cout<<Show(Background::Yellow(),"Coincident detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
+	detectors.push_back(*iterator);
+	//std::cout<<Show(Background::Yellow(),"Added detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
 	//if this detector is also outside the waiting window or has the same time as the current detector (if we're flushing) we remove it as well
 	if(!fSettings->InWaitingWindow(iterator->GetUlm().Clock(), std::prev(fReadDetector.end())->GetUlm().Clock()) || iterator->GetUlm().Clock() == detectors[0].GetUlm().Clock()) {
-	  std::cout<<Show(Background::Red(),"Removing detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size()," either ",iterator->GetUlm().Clock(),",",std::prev(fReadDetector.end())->GetUlm().Clock()," not in waiting window, or ",iterator->GetUlm().Clock()," == ",detectors[0].GetUlm().Clock(),Attribs::Reset())<<std::endl;
-//	  std::cout<<iterator->Print()<<std::endl;
-//	  for(auto& det : fReadDetector) {
-//	    std::cout<<det.GetUlm().Clock()<<", ";
-//	  }
-//	  std::cout<<std::endl;
-	  auto tmp = iterator++;//post-increment, i.e. we copy the original value and THEN increment the iterator
+	  //std::cout<<Show(Background::Yellow(),"Removing detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
+	  auto tmp = iterator++;//post-increment, i.e. we copy the original iterator, THEN increment the iterator, and finally erase the copy of the original iterator
 	  fReadDetector.erase(tmp);
-	  //++nofRemoved;
-	  std::cout<<Show(Background::Red(),"Removed detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
+	  ++nofRemoved;
+	  //std::cout<<Show(Background::Yellow(),"Removed detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
 	} else {
-	  std::cout<<Show(Background::Yellow(),"Did not remove detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
+	  //std::cout<<Show(Background::Yellow(),"Did not remove detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
 	  ++iterator;
 	}
       } else {
 	//the set is ordered, so if this detector is outside the coincidence window all followings will be outside as well
-	std::cout<<Show(Background::Yellow(),"Break on detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
+	//std::cout<<Show(Background::Yellow(),"Break on detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
 	break;
       }
-      std::cout<<Show(Background::Yellow(),"Done with detector before ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
+      //std::cout<<Show(Background::Yellow(),"Done with detector ",std::distance(fReadDetector.begin(),iterator)," of ",fReadDetector.size(),Attribs::Reset())<<std::endl;
     }
-    std::cout<<Show(Background::Yellow(),"Done with all detectors",Attribs::Reset())<<std::endl;
+    //std::cout<<Show(Background::Yellow(),"Done with all detectors",Attribs::Reset())<<std::endl;
+    fReadMutex.unlock();
+    //std::cout<<Show(Background::Green(),"BuiltEvents released read mutex 2",Attribs::Reset())<<std::endl;
 
     //check whether the circular buffer is full
     //if it is and we can't increase it's capacity, we try once(!) to wait for it to empty
@@ -1156,36 +1220,74 @@ void MidasEventProcessor::BuildEvents() {
 	if(fSettings->VerbosityLevel() > 0) {
 	  std::cout<<Show("Trying to increase built events buffer capacity of ",fBuiltEvents.capacity()," by ",fSettings->BuiltEventsSize())<<std::endl;
 	}
+	//std::cout<<Show(Background::Blue(),"BuiltEvents acquiring built mutex 1",Attribs::Reset())<<std::endl;
+	fBuiltMutex.lock();
+	//std::cout<<Show(Background::Red(),"BuiltEvents acquired built mutex 1",Attribs::Reset())<<std::endl;
 	fBuiltEvents.set_capacity(fBuiltEvents.capacity() + fSettings->BuiltEventsSize());
+	fBuiltMutex.unlock();
+	//std::cout<<Show(Background::Green(),"BuiltEvents released built mutex 1",Attribs::Reset())<<std::endl;
       } catch(std::exception& exc) {
 	std::cerr<<Show(Attribs::Bright(),Foreground::Red(),"Failed to increase capacity (",fBuiltEvents.capacity(),") of built events buffer by ",fSettings->BuiltEventsSize(),Attribs::Reset())<<std::endl;
 	slept = true;
 	std::this_thread::sleep_for(std::chrono::milliseconds(STANDARD_WAIT_TIME));
       }
     }
+    //std::cout<<Show(Background::Blue(),"BuiltEvents acquiring built mutex 2",Attribs::Reset())<<std::endl;
+    fBuiltMutex.lock();
+    //std::cout<<Show(Background::Red(),"BuiltEvents acquired built mutex 2",Attribs::Reset())<<std::endl;
     fBuiltEvents.push_back(Event(detectors));
+    fBuiltMutex.unlock();
+    //std::cout<<Show(Background::Green(),"BuiltEvents released built mutex 2",Attribs::Reset())<<std::endl;
     ++fNofBuiltEvents;
+    ++fDetectorsPerEvent[detectors.size()];
     if(fSettings->VerbosityLevel() > 1) {
-      std::cout<<Show("Built event with ",detectors.size()," detectors (removed ",nofRemoved,")")<<std::endl;
+      std::cout<<Show("Built event with ",detectors.size()," detectors (removed ",nofRemoved,", flushing = ",kFlushRead,")")<<std::endl;
     }
-  }//if readdetector.size() > 0
+    if(detectors.size() > 1000) {
+      if(kFlushRead) {
+	std::cout<<Show("Built event with ",detectors.size()," detectors from ",fReadDetector.begin()->GetUlm().Clock()," to ",std::prev(fReadDetector.end())->GetUlm().Clock()," => time difference of ",std::prev(fReadDetector.end())->GetUlm().Clock() - fReadDetector.begin()->GetUlm().Clock()," (removed ",nofRemoved,", flushing)")<<std::endl;
+      } else {
+	std::cout<<Show("Built event with ",detectors.size()," detectors from ",fReadDetector.begin()->GetUlm().Clock()," to ",std::prev(fReadDetector.end())->GetUlm().Clock()," => time difference of ",std::prev(fReadDetector.end())->GetUlm().Clock() - fReadDetector.begin()->GetUlm().Clock()," (removed ",nofRemoved,", not flushing)")<<std::endl;
+      }
+    }
+    detectors.clear();
+  }//while loop
 
   fStatus = kFlushBuilt;
 
-  return;
+  auto end = std::chrono::high_resolution_clock::now();
+
+  std::stringstream result;
+  result<<"BuildEvents finished with status "<<fStatus<<", fReadDetector.size() = "<<fReadDetector.size()<<" after "<<std::chrono::duration_cast<std::chrono::seconds>(end-start).count()<<" seconds"<<std::endl;
+  return result.str();
 }
 
 //start output thread (writes event in the output buffer to file/tree)
-void MidasEventProcessor::FillTree() {
-  TStopwatch watch;
+std::string MidasEventProcessor::FillTree() {
+  //TStopwatch watch;
+  auto start = std::chrono::high_resolution_clock::now();
 
-  if(fBuiltEvents.size() > 0) {
+  while(fStatus != kFlushBuilt || fBuiltEvents.size() > 0) {
+    //if there are no built events we wait a little bit (and continue to make sure we weren't told to flush in the mean time)
+    if(fBuiltEvents.empty()) {
+//      if(fStatus != kRun) {
+//	std::cout<<Show(Attribs::Bright(),Foreground::Yellow(),ThreadStatus(),Attribs::Reset())<<std::endl;
+//      }
+      //std::this_thread::sleep_for(std::chrono::milliseconds(STANDARD_WAIT_TIME));
+      std::this_thread::yield();
+      continue;
+    }
     //make the leaf point to the first event
+    //std::cout<<Show(Background::Blue(),"FillTree acquiring built mutex",Attribs::Reset())<<std::endl;
+    fBuiltMutex.lock();
+    //std::cout<<Show(Background::Red(),"FillTree acquired built mutex",Attribs::Reset())<<std::endl;
     fLeaf = &(fBuiltEvents.front());
     //fill the tree (this writes the first event to file)
     fTree->Fill();
     //delete the first event
     fBuiltEvents.pop_front();
+    fBuiltMutex.unlock();
+    //std::cout<<Show(Background::Green(),"FillTree released built mutex",Attribs::Reset())<<std::endl;
     if(fSettings->VerbosityLevel() > 1) {
       std::cout<<"Wrote one event to tree."<<std::endl;
     }
@@ -1193,19 +1295,61 @@ void MidasEventProcessor::FillTree() {
 
   fStatus = kDone;
 
-  return;
+  auto end = std::chrono::high_resolution_clock::now();
+
+  std::stringstream result;
+  result<<"FillTree finished with status "<<fStatus<<", fBuiltEvents.size() = "<<fBuiltEvents.size()<<" after "<<std::chrono::duration_cast<std::chrono::seconds>(end-start).count()<<" seconds"<<std::endl;
+  return result.str();
+}
+
+std::string MidasEventProcessor::BufferStatus(std::string fileName) {
+  //TStopwatch watch;
+  auto start = std::chrono::high_resolution_clock::now();
+
+  fBufferStatisticsFile.open(fileName.c_str());
+
+  size_t oldReadDetectorSize = 0;
+  size_t oldBuiltEventsSize = 0;
+  size_t oldTreeSize = 0;
+
+  fBufferStatisticsFile<<"#Time[ms] TimeDiff[ms] fReadDetector.size() oldReadDetectorSize fNofReadDetectors fBuiltEvents.size() oldBuiltEventsSize fNofBuiltEvents fTree->GetEntries() oldTreeSize"<<std::endl;
+
+  auto oldTime = start;
+  while(fStatus != kDone) {
+    auto now = std::chrono::high_resolution_clock::now();
+    fBufferStatisticsFile<<std::chrono::duration_cast<std::chrono::milliseconds>(now-start).count()<<" "<<std::chrono::duration_cast<std::chrono::milliseconds>(now-oldTime).count()<<" "
+			 <<fReadDetector.size()<<" "<<oldReadDetectorSize<<" "<<fNofReadDetectors<<" "
+			 <<fBuiltEvents.size()<<" "<<oldBuiltEventsSize<<" "<<fNofBuiltEvents<<" "
+			 <<fTree->GetEntries()<<" "<<oldTreeSize<<std::endl;
+
+    oldReadDetectorSize = fReadDetector.size();
+    oldBuiltEventsSize  = fBuiltEvents.size();
+    oldTreeSize         = fTree->GetEntries();
+    oldTime             = now;
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+
+  auto end = std::chrono::high_resolution_clock::now();
+
+  std::stringstream result;
+  result<<"BufferStatus finished after "<<std::chrono::duration_cast<std::chrono::seconds>(end-start).count()<<" seconds"<<std::endl;
+  return result.str();
 }
 
 std::string MidasEventProcessor::StatusUpdate() {
-  TStopwatch watch;
+  //TStopwatch watch;
+  auto start = std::chrono::high_resolution_clock::now();
 
   while(fStatus == kRun) {
     std::cout<<Status()<<std::endl;
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
 
+  auto end = std::chrono::high_resolution_clock::now();
+
   std::stringstream result;
-  result<<"StatusUpdate finished after "<<watch.RealTime()<<"/"<<watch.CpuTime()<<" seconds (real time/cpu time)"<<std::endl;
+  result<<"StatusUpdate finished after "<<std::chrono::duration_cast<std::chrono::seconds>(end-start).count()<<" seconds"<<std::endl;
   return result.str();
 }
 

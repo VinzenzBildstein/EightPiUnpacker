@@ -3,7 +3,195 @@
 #include <iomanip>
 #include <fstream>
 
+#include "TCollection.h"
+#include "TXMLDocument.h"
+#include "TXMLAttr.h"
+
 #include "TextAttributes.hh"
+
+void MidasFileHeader::ParseOdb() {
+  fParser->SetValidate(false);
+  fParser->ParseBuffer(reinterpret_cast<char*>(fInformation.data()),fInformation.size()*2);
+  TXMLDocument* doc = fParser->GetXMLDocument();
+  if(doc == nullptr) {
+    std::cerr<<"Malformed ODB dump: cannot get XML document"<<std::endl;
+    return;
+  }
+
+  fOdb = FindNode(doc->GetRootNode(),"odb");
+  
+  if(fOdb == nullptr) {
+    std::cerr<<"Malformed ODB dump: cannot find <odb> tag"<<std::endl;
+    return;
+  }
+}
+
+void MidasFileHeader::PrintOdb(TXMLNode* startNode, size_t level) {
+  if(startNode == nullptr) {
+    startNode = fOdb;
+  }
+  for(TXMLNode* node = startNode; node != nullptr; node = node->GetNextNode()) {
+    for(size_t i = 0; i < level; ++i) {
+      std::cout<<"  ";
+    }
+    if(node->GetText() != nullptr) {
+      for(size_t i = 0; i < level+1; ++i) {
+	std::cout<<"  ";
+      }
+      std::cout<<"Text: "<<node->GetText()<<std::endl;
+    }
+    TIter next((TCollection*)(node->GetAttributes()));
+    TXMLAttr* attribute;
+    while((attribute = (TXMLAttr*) next()) != nullptr) {
+      for(size_t i = 0; i < level+1; ++i) {
+	std::cout<<"  ";
+      }
+      std::cout<<"Attribute: "<<attribute->GetName()<<" = "<<attribute->GetValue()<<std::endl;
+    }
+    if(node->HasChildren()) {
+      PrintOdb(node->GetChildren(),level+1);
+    }
+  }
+}
+
+TXMLNode* MidasFileHeader::FindNode(TXMLNode* startNode, const char* name) {
+  for(TXMLNode* node = startNode; node != nullptr; node = node->GetNextNode()) {
+    if(strcmp(node->GetNodeName(),name) == 0) {
+      return node;
+    }
+    if(node->HasChildren()) {
+      TXMLNode* found = FindNode(node->GetChildren(),name);
+      if(found != nullptr) {
+	return found;
+      }
+    }
+  }
+  return nullptr;
+}
+
+const char* MidasFileHeader::GetAttribute(TXMLNode* node, const char* attributeName) {
+  return GetAttribute(node, std::string(attributeName));
+}
+
+const char* MidasFileHeader::GetAttribute(TXMLNode* node, std::string attributeName) {
+  TIter next((TCollection*)(node->GetAttributes()));
+  TXMLAttr* attribute;
+  while((attribute = (TXMLAttr*) next()) != nullptr) {
+    if(attributeName.compare(attribute->GetName()) == 0) {
+      return attribute->GetValue();
+    }
+  }
+  return nullptr;
+}
+
+TXMLNode* MidasFileHeader::FindArrayPath(TXMLNode* node, std::string path, std::string type, int index) {
+  if(fOdb == nullptr) {
+    return nullptr;
+  }
+
+  if(node == nullptr) {
+    node = fOdb->GetChildren();
+  }
+
+  std::transform(path.begin(), path.end(), path.begin(), tolower);
+  std::transform(type.begin(), type.end(), type.begin(), tolower);  
+
+  std::string element;
+
+  TXMLNode* tmpNode = node;
+  while(tmpNode != nullptr) {
+    //strip leading slashes
+    path.erase(0,path.find_first_not_of("/"));
+
+    if(path.length() == 0) {
+      node = tmpNode;
+      break;
+    }
+   
+    if(path.find('/') != std::string::npos) {
+      element = path.substr(0,path.find('/')-1);
+    } else {
+      element = path;
+    }
+
+    for(; tmpNode != nullptr; tmpNode = tmpNode->GetNextNode()) {
+      std::string nodeName = tmpNode->GetNodeName();
+      std::string nameValue = GetAttribute(tmpNode,"name");
+      
+      bool isDir = nodeName.compare("dir") == 0;
+      bool isKey = nodeName.compare("key") == 0;
+      bool isKeyArray = nodeName.compare("keyarray") == 0;
+      
+      if(!isKey && !isDir && !isKeyArray) {
+	continue;
+      }
+      
+      std::transform(nameValue.begin(), nameValue.end(), nameValue.begin(), tolower);
+      if(element.compare(nameValue) == 0) {
+	if(isDir) {
+	  // found the right subdirectory, descend into it
+	  tmpNode = tmpNode->GetChildren();
+	  break;
+	} else if(isKey || isKeyArray) {
+	  node = tmpNode;
+	  tmpNode = nullptr;
+	  break;
+	}
+      }
+    }
+  }
+
+  if(node == nullptr) {
+    return nullptr;
+  }
+
+  std::string nodeName = node->GetNodeName();
+  std::string numberValues = GetAttribute(node,"num_values");
+
+  std::string typeValue = GetAttribute(node,"type");
+  std::transform(typeValue.begin(), typeValue.end(), typeValue.begin(), tolower);
+
+  if(typeValue == nullptr || typeValue.compare(type) != 0) {
+    std::cerr<<__PRETTY_FUNCTION__<<": Type mismatch: we expected '"<<type<<"', but got '"<<typeValue<<"'"<<std::endl;
+    return nullptr;
+  }
+
+  if(numberValues != nullptr && nodeName.compare("keyarray") == 0) {
+    if(index != 0) {
+      std::cerr<<__PRETTY_FUNCTION__<<": Attempt to access array element "<<index<<", but this is not an array"<<std::endl;
+      return nullptr;
+    }
+
+    return node;
+  }
+
+  int maxIndex;
+  std::stringstream stream(numberValues);
+  stream>>maxIndex;
+
+  if(index < 0 || index >= maxIndex) {
+    std::cerr<<__PRETTY_FUNCTION__<<": Attempt to access array element "<<index<<", but size of array  is "<<maxIndex<<std::endl;
+    return nullptr;
+  }
+
+  TXMLNode* child = node->GetChildren();
+
+  for(int i = 0; child != nullptr; ) {
+    std::string name = child->GetNodeName();
+    std::string text = child->GetText();
+
+    if(name.compare("value") == 0) {
+      if(i == index) {
+	return child;
+	++i;
+      }
+      
+      child = child->GetNextNode();
+    }
+  }
+
+  return node;
+}
 
 MidasFileManager::~MidasFileManager() {
   if(fFile.is_open()) {
@@ -74,7 +262,10 @@ MidasFileHeader MidasFileManager::ReadHeader() {
   //read the header information and advance the read address
   copy(reinterpret_cast<const uint16_t*>(fReadAddress),reinterpret_cast<const uint16_t*>(fReadAddress+fileHeaderWord[3]),fileHeader.Information().begin());
   fReadAddress += fileHeaderWord[3];
-       
+
+  //parse the odb
+  fileHeader.ParseOdb();
+  
   return fileHeader;
 }
 

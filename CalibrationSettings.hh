@@ -85,7 +85,7 @@ enum class EDetectorType : uint8_t {
 
 class Settings {
 public:
-  Settings(std::string, int);
+  Settings(std::string, int, bool);
   ~Settings(){};
 
   int VerbosityLevel() {
@@ -136,22 +136,62 @@ public:
     return fMaxBaF2Channel;
   }
 
+  //-------------------- calibration
+  bool NoCalibration() {
+    return fNoCalibration;
+  }
+  float Sigma() {
+    return fSigma;
+  }
+  double PeakThreshold() {
+    return fPeakThreshold;
+  }
+  int NofDeconvIterations() {
+    return fNofDevonvIterations;
+  }
+  int NofFitIterations() {
+    return fNofFitIterations;
+  }
+  double FitConvergenceCoeff() {
+    return fFitConvergenceCoeff;
+  }
+  int NofPeaks(uint8_t detectorType, uint16_t detectorNumber) {
+    return fNofPeaks[detectorType][detectorNumber];
+  }
+  int InRoughWindow(uint8_t detectorType, uint16_t detectorNumber, double channel) {
+    if(fRoughWindow.find(detectorType) != fRoughWindow.end()) {
+      for(int i = 0; i < (int) (fRoughWindow[detectorType][detectorNumber].size()); ++i) {
+	if(fRoughWindow[detectorType][detectorNumber][i].first <= channel && channel <= fRoughWindow[detectorType][detectorNumber][i].second) {
+	  return i;
+	}
+      }
+    }
+    return -1;
+  }
+  std::string PrintWindow(uint8_t detectorType, uint16_t detectorNumber, size_t index) {
+    std::stringstream res;
+    res<<fRoughWindow[detectorType][detectorNumber][index].first<<" - "<<fRoughWindow[detectorType][detectorNumber][index].second;
+    return res.str();
+  }
+  double Energy(uint8_t detectorType, uint16_t detectorNumber, size_t index) {
+    return fEnergy[detectorType][detectorNumber][index];
+  }
+
   //-------------------- event building
   bool InWaitingWindow(const uint32_t& firstTime, const uint32_t& secondTime) {
     return int(secondTime - firstTime) < fWaitingWindow;
   }
 
   bool Coincidence(const uint32_t& firstTime, const uint32_t& secondTime) {
-    if(secondTime >= firstTime) {
-      return int(secondTime - firstTime) < fCoincidenceWindow;
-    }
-    std::cout<<"second time "<<secondTime<<" not larger than first time "<<firstTime<<"!"<<std::endl;
-    return false;
+    return int(secondTime - firstTime) < fCoincidenceWindow;
   }
 
   //-------------------- misc
   const char* TemperatureFile() {
     return fTemperatureFileName.c_str();
+  }
+  int UncalibratedBufferSize() {
+    return fUncalibratedBufferSize;
   }
   int BuiltEventsSize() {
     return fBuiltEventsSize;
@@ -159,9 +199,11 @@ public:
 
 private:
   int fVerbosityLevel;
+  bool fNoCalibration;
 
   std::string fTemperatureFileName;
 
+  int fUncalibratedBufferSize;
   int fBuiltEventsSize;
 
   int fNofGermaniumDetectors;
@@ -180,6 +222,16 @@ private:
   //-------------------- event building
   int fWaitingWindow;
   int fCoincidenceWindow;
+
+  //-------------------- calibration
+  float fSigma;
+  double fPeakThreshold;
+  int fNofDevonvIterations;
+  int fNofFitIterations;
+  double fFitConvergenceCoeff;
+  std::map<uint8_t, std::vector<uint16_t> > fNofPeaks;
+  std::map<uint8_t, std::vector<std::vector<std::pair<uint16_t,uint16_t> > > > fRoughWindow;
+  std::map<uint8_t, std::vector<std::vector<double> > > fEnergy;
 };
 
 #endif

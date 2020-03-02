@@ -1,0 +1,2 @@
+#change midasevenprocessor to take detector/energy as pair, that way we create them always together and don't need a later check!
+#check all for loops to use the correct iterators
