@@ -1,6 +1,37 @@
+# Compiled Object files
+*.slo
+*.lo
 *.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
 *.so
 *.so.*
-*.mid
-*.root
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
 EightPiUnpacker
+*.exe
+*.out
+*.app
+
+
+#midas stuff
+*.mid
+*.odb
+*.root
+*.dat
