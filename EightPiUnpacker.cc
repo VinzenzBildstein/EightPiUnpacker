@@ -29,6 +29,8 @@ int main(int argc, char** argv) {
   interface.Add("-of","root file name (optional, default = replacing extension with .root)",&rootFileName);
   std::string settingsFileName = "Settings.dat";
   interface.Add("-sf","settings file name (optional, default = 'Settings.dat'",&settingsFileName);
+  std::string statisticsFile = "BufferStatistics.dat";
+  interface.Add("-bf","buffer statistics file name (optional, default = 'BufferStatistics.dat'",&statisticsFile);
   bool statusUpdate = false;
   interface.Add("-su","activate status update",&statusUpdate);
   size_t nofEvents = 0;
@@ -86,16 +88,19 @@ int main(int argc, char** argv) {
   size_t oldPosition = 0;
   MidasFileManager fileManager(midasFileName, &settings);
   MidasEvent currentEvent;
-  MidasEventProcessor eventProcessor(&settings, &rootFile, &tree, statusUpdate);
+  MidasEventProcessor eventProcessor(&settings, &rootFile, &tree, statisticsFile, statusUpdate);
 
   //-------------------- get the file header --------------------
   MidasFileHeader fileHeader = fileManager.ReadHeader();
   if(verbosityLevel > 0) {
     std::cout<<"Run number: "<<fileHeader.RunNumber()<<std::endl
-	<<"Start time: "<<hex<<fileHeader.StartTime()<<dec<<std::endl
-	<<"Number of bytes in header: "<<fileHeader.InformationLength()<<dec<<std::endl
-	<<"Starting main loop:"<<std::endl
-	<<std::endl;
+	     <<"Start time: "<<hex<<fileHeader.StartTime()<<dec<<std::endl
+	     <<"Number of bytes in header: "<<fileHeader.InformationLength()<<dec<<std::endl
+	     <<"Starting main loop:"<<std::endl
+	     <<std::endl
+	     <<"===================="<<std::endl;
+    fileHeader.PrintOdb();
+    std::cout<<"===================="<<std::endl;
   }
 
   //-------------------- main loop --------------------
@@ -109,8 +114,9 @@ int main(int argc, char** argv) {
       }
     }
     totalEvents++;
-    if(totalEvents%1000 == 0) {
+    if(totalEvents%10000 == 0) {
       std::cout<<setw(5)<<fixed<<setprecision(1)<<(100.*fileManager.Position())/fileManager.Size()<<"%: read "<<totalEvents<<" events ("<<1000./watch.RealTime()<<" events/s = "<<(fileManager.Position()-oldPosition)/watch.RealTime()/1024<<" kiB/s)\r"<<std::flush;
+      oldPosition = fileManager.Position();
       watch.Continue();
     }
     if(nofEvents > 0 && totalEvents >= nofEvents) {
@@ -129,9 +135,9 @@ int main(int argc, char** argv) {
   //-------------------- flush all events to file and close all files --------------------
   eventProcessor.Flush();
 
-  if(verbosityLevel > 0) {
+  //if(verbosityLevel > 0) {
     eventProcessor.Print();
-  }
+    //}
 
   fileManager.Close();
   tree.Write();

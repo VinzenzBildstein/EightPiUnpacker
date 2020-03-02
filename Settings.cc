@@ -39,7 +39,7 @@ Settings::Settings(std::string settingsFileName, int verbosityLevel) {
   fCoarseTdcWindows[detType].resize(fNofGermaniumDetectors);
   for(int i = 0; i < fNofGermaniumDetectors; ++i) {
     fActiveDetectors[detType][i] = env.GetValue(Form("Germanium.%d.Active",i),true);
-    fCoarseTdcWindows[detType][i] = std::make_pair(env.GetValue(Form("Germanium.%d.",i),true),env.GetValue(Form("Germanium.%d.Active",i),true));
+    fCoarseTdcWindows[detType][i] = std::make_pair(env.GetValue(Form("Germanium.%d.TDC.Low",i),0),env.GetValue(Form("Germanium.%d.TDC.High",i),16384));
   }
   //plastic
   detType = static_cast<uint8_t>(EDetectorType::kPlastic);
@@ -47,7 +47,7 @@ Settings::Settings(std::string settingsFileName, int verbosityLevel) {
   fCoarseTdcWindows[detType].resize(fNofPlasticDetectors);
   for(int i = 0; i < fNofPlasticDetectors; ++i) {
     fActiveDetectors[detType][i] = env.GetValue(Form("Plastic.%d.Active",i),true);
-    fCoarseTdcWindows[detType][i] = std::make_pair(env.GetValue(Form("Plastic.%d.",i),true),env.GetValue(Form("Plastic.%d.Active",i),true));
+    fCoarseTdcWindows[detType][i] = std::make_pair(env.GetValue(Form("Plastic.%d.TDC.Low",i),0),env.GetValue(Form("Plastic.%d.TDC.High",i),16384));
   }
   //silicon
   detType = static_cast<uint8_t>(EDetectorType::kSilicon);
@@ -55,7 +55,7 @@ Settings::Settings(std::string settingsFileName, int verbosityLevel) {
   fCoarseTdcWindows[detType].resize(fNofSiliconDetectors);
   for(int i = 0; i < fNofSiliconDetectors; ++i) {
     fActiveDetectors[detType][i] = env.GetValue(Form("Silicon.%d.Active",i),true);
-    fCoarseTdcWindows[detType][i] = std::make_pair(env.GetValue(Form("Silicon.%d.",i),true),env.GetValue(Form("Silicon.%d.Active",i),true));
+    fCoarseTdcWindows[detType][i] = std::make_pair(env.GetValue(Form("Silicon.%d.TDC.Low",i),0),env.GetValue(Form("Silicon.%d.TDC.High",i),16384));
   }
   //BaF2
   detType = static_cast<uint8_t>(EDetectorType::kBaF2);
@@ -63,7 +63,7 @@ Settings::Settings(std::string settingsFileName, int verbosityLevel) {
   fCoarseTdcWindows[detType].resize(fNofBaF2Detectors);
   for(int i = 0; i < fNofBaF2Detectors; ++i) {
     fActiveDetectors[detType][i] = env.GetValue(Form("BaF2.%d.Active",i),true);
-    fCoarseTdcWindows[detType][i] = std::make_pair(env.GetValue(Form("BaF2.%d.",i),true),env.GetValue(Form("BaF2.%d.Active",i),true));
+    fCoarseTdcWindows[detType][i] = std::make_pair(env.GetValue(Form("BaF2.%d.TDC.Low",i),0),env.GetValue(Form("BaF2.%d.TDC.High",i),16384));
   }
 
   //-------------------- event building (times are in 100 ns)

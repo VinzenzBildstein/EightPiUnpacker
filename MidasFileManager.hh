@@ -3,8 +3,12 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <sstream>
 
 #include <boost/iostreams/device/mapped_file.hpp>
+
+#include "TDOMParser.h"
+#include "TXMLNode.h"
 
 #include "Settings.hh"
 
@@ -16,8 +20,15 @@ class Bank;
 
 class MidasFileHeader {
  public:
-  MidasFileHeader(){};
-  ~MidasFileHeader(){};
+  MidasFileHeader() {
+    fParser = new TDOMParser();
+    fOdb = nullptr;
+  };
+  ~MidasFileHeader() {
+    if(fParser != nullptr) {
+      delete fParser;
+    }
+  };
 
   void RunNumber(uint32_t number) {
     fRunNumber = number;
@@ -42,10 +53,34 @@ class MidasFileHeader {
     return fInformation;
   }
 
+  void ParseOdb();
+  void PrintOdb(TXMLNode* node = nullptr, size_t level = 0);
+
+  template<class T> T Read(std::string name, int index, T defaultValue) {
+    TXMLNode* parent = nullptr;
+    TXMLNode* node = FindArrayPath(parent,name,"DWORD",index);
+    if(node == nullptr) {
+      return defaultValue;
+    }
+    if(node->GetText() == nullptr) {
+      return defaultValue;
+    }
+    std::stringstream stream(node->GetText());
+    stream>>defaultValue;
+    return defaultValue;
+  }
+
  private:
+  TXMLNode* FindNode(TXMLNode*, const char*);
+  const char* GetAttribute(TXMLNode* node, const char* attributeName);
+  const char* GetAttribute(TXMLNode* node, std::string attributeName);
+  TXMLNode* FindArrayPath(TXMLNode* node, std::string path, std::string type, int index);
+  
   uint32_t fRunNumber;
   uint32_t fStartTime;
   std::vector<uint16_t> fInformation;
+  TDOMParser* fParser;
+  TXMLNode* fOdb;
 };
 
 class MidasFileManager {

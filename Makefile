@@ -20,7 +20,7 @@ COMMON_DIR 	= $(HOME)/Common
 
 INCLUDES        = -I$(COMMON_DIR) -I.
 
-LIBRARIES	= CommandLineInterface Utilities TextAttributes Spectrum pthread boost_iostreams
+LIBRARIES	= CommandLineInterface Utilities TextAttributes Spectrum pthread boost_iostreams pugixml XMLParser
 
 CC		= gcc
 CXX             = g++
@@ -36,6 +36,7 @@ LOADLIBES = \
 	MidasEventProcessor.o \
 	Event.o \
 	Settings.o \
+	Odb.o \
 	$(NAME)Dictionary.o
 
 # -------------------- implicit rules --------------------
